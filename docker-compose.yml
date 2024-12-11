@@ -41,9 +41,9 @@ services:
       retries: 10
     # Mount a local SQL file to initialize your schema at startup
     volumes:
-      - ./db_init_sql:/container-entrypoint-initdb.d
+      - ./db_init_sql:/container-entrypoint-initdb.d # mount the init scripts
       - oracle-data-struct:/opt/oracle/oradata  # Mount the volume to the Oracle data directory
-      - ./data/dbp01-31-10-24.dmp:/dpdata/dump_file.dmp # add the dump file to the container
+      - ./data/dbp01-31-10-24.dmp:/dpdata/dump_file.dmp # mount the actual dump file
 
   oracle-dp-import:
     image: gvenzl/oracle-free:latest
@@ -61,5 +61,4 @@ services:
 
 volumes:
   oracle-data-struct:
-  oracle-data-dump-dir:
 
