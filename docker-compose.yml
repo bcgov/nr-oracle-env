@@ -1,0 +1,70 @@
+x-var:
+  - &ORA_USER
+    THE
+  - &ORA_PASSWORD
+    default
+  - &ORA_DATABASE
+    DBDOCK_STRUCT_01
+  - &ORA_HOST
+    oracle
+  - &ORA_PORT
+    1522
+  - &ORA_FLYWAY_URL
+    jdbc:oracle:thin:@//oracle:1521/DBDOCK_01
+
+x-oracle-vars: &oracle-vars
+  ORACLE_DATABASE: *ORA_DATABASE
+  ORACLE_PASSWORD: *ORA_PASSWORD
+  ORACLE_HOST: *ORA_HOST
+  APP_USER: *ORA_USER
+  APP_USER_PASSWORD: *ORA_PASSWORD
+  FLYWAY_URL: *ORA_FLYWAY_URL
+
+
+services:
+  # Name of the Docker Compose service
+  oracle:
+    # Docker Hub image (feel free to change the tag "latest" to any other available one)
+    image: gvenzl/oracle-free:latest
+    # Forward Oracle port to localhost
+    container_name: oracle
+    ports:
+      - "1522:1521"
+    # Provide passwords and other environment variables to the container
+    environment:
+      <<: *oracle-vars
+    # Customize healthcheck script options for startup
+    healthcheck:
+      test: ["CMD", "/opt/oracle/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Mount a local SQL file to initialize your schema at startup
+    volumes:
+      - ./db_init_sql:/container-entrypoint-initdb.d
+      - oracle-data-struct:/opt/oracle/oradata  # Mount the volume to the Oracle data directory
+      - ./data/dbp01-31-10-24.dmp:/dpdata/dump_file.dmp # add the dump file to the container
+
+      # add the roles as part of the db init
+      # - ./oradb/db_init/db_init.sql:/container-entrypoint-initdb.d/my-init.sql:ro
+
+  oracle-dp-import:
+    image: gvenzl/oracle-free:latest
+    container_name: oracle-dp-import
+    # Provide passwords and other environment variables to the container
+    environment:
+      <<: *oracle-vars
+    restart: "no"
+    entrypoint: ["/bin/bash", "/opt/oracle/scripts/run_data_pump_import.sh"]
+    volumes:
+    #   #- ./data/dbp01-31-10-24.dmp:/opt/oracle/admin/DBDOCK_STRUCT_01/dpdump/001/dbp01-31-10-24.dmp
+    #   - ./data/:/data/
+      - ./data_pump_import/run_data_pump_import.sh:/opt/oracle/scripts/run_data_pump_import.sh
+    depends_on:
+      oracle:
+        condition: service_healthy
+
+volumes:
+  oracle-data-struct:
+  oracle-data-dump-dir:
+

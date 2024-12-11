@@ -1,0 +1,5 @@
+-- unforunately, we can't create directory object in pluggable database
+-- SQL Error [65040] [99999]: ORA-65040: Operation is not allowed from within a pluggable database.
+------------------------------------------------------------------
+-- ALTER SESSION SET CONTAINER=DBDOCK_STRUCT_01;
+-- create directory DPDIR as '/dpdata';
