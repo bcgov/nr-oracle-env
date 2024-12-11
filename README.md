@@ -1,21 +1,20 @@
 # Background
 
+<img src="https://lh3.googleusercontent.com/pw/AP1GczOiFckwC6jkI7XcZEJlDDQpFH0xLF5jajiijcry_9f7sn0O_1HSWMW8SQLLvtjXV_UMiSDiB5MSh_up4jE3DaqUbPs-ucSNq4P3IkT0YMAlvwtsKH_T1YY3xQeG1LTniYcc4L5f16DlkFeQTuP9Hq_Gcw=w1306-h589-s-no-gm?authuser=0" width="700px">
+
 When Nivana was still making music, the paradigm for multiple application integration
 was at the database level.  During this dark era, if one application required access
-to data that another application was responsible for, usually a grant was created to 
-provide access at the database level.
+to another applications data, it was usually accomplished by a database grant.
 
-One of the issues that arises with this approach is granting access to developers to 
-database objects that are used by a single application becomes difficult.  As time 
-progresses even knowing what objects are used by different applications can become
-muddy.
-
-Debugging applications typically requires wholesale access to the database, however 
+Challenged with this approach to application data integrations include:
+* uncertainty over which application owns what data
+* what is the minimum amount of data required to keep an application running
+* Debugging applications typically requires wholesale access to the database, however 
 getting this level of access due to sentivity of data, and security concerns becomes
 difficult and time consuming.
 
-The objective of this repo is to create local oracle databases to support development
-and load the structure from oracle datapump files.
+The objective of this repo is to facilitate the creation of local oracle databases to 
+support development activities.  
 
 # Getting the database up and running
 
