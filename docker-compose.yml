@@ -45,9 +45,6 @@ services:
       - oracle-data-struct:/opt/oracle/oradata  # Mount the volume to the Oracle data directory
       - ./data/dbp01-31-10-24.dmp:/dpdata/dump_file.dmp # add the dump file to the container
 
-      # add the roles as part of the db init
-      # - ./oradb/db_init/db_init.sql:/container-entrypoint-initdb.d/my-init.sql:ro
-
   oracle-dp-import:
     image: gvenzl/oracle-free:latest
     container_name: oracle-dp-import
@@ -57,8 +54,6 @@ services:
     restart: "no"
     entrypoint: ["/bin/bash", "/opt/oracle/scripts/run_data_pump_import.sh"]
     volumes:
-    #   #- ./data/dbp01-31-10-24.dmp:/opt/oracle/admin/DBDOCK_STRUCT_01/dpdump/001/dbp01-31-10-24.dmp
-    #   - ./data/:/data/
       - ./data_pump_import/run_data_pump_import.sh:/opt/oracle/scripts/run_data_pump_import.sh
     depends_on:
       oracle:
