@@ -1,0 +1,36 @@
+{
+    "editor.hover.enabled": false,
+    "editor.rulers": [
+        80,
+        120
+    ],
+    // "python.sortImports.args": [
+    //     "--profile", "black"
+    // ],
+    "python.defaultInterpreterPath": "./data-query-tool/.venv/bin/python",
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        },
+        "black-formatter.args":
+            ["--line-length=80"],
+    },
+    "ruff.codeAction.disableRuleComment": {
+        "enable": true
+    },
+    "ruff.lint.run": "onType",
+    "ruff.organizeImports": false,
+    "isort.args": ["--profile", "black"],
+    "autoDocstring.docstringFormat": "sphinx",
+    "files.trimTrailingWhitespace": true,
+    "ruff.lint.args": [
+        "--unfixable=F401", "--extend-ignore=D200,D202,D212"
+    ],
+    "python.testing.pytestArgs": [
+        "data_prep"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+}
