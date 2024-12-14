@@ -17,6 +17,7 @@
         {
             "name": "run junk",
             "type": "debugpy",
+            "redirectOutput": false ,
             "request": "launch",
             "program": "data-query-tool/junk.py",
             "console": "integratedTerminal",

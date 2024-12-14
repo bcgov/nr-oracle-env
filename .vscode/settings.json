@@ -1,5 +1,26 @@
 {
     "editor.hover.enabled": false,
+    // Controls if quick suggestions should show up while typing
+    "editor.quickSuggestions": {
+        "comments": "off",
+        "strings": "off",
+        "other": "off"
+    },
+
+    // Controls if suggestions should be accepted with "Enter" - in addition to "Tab". Helps to avoid ambiguity between inserting new lines and accepting suggestions.
+    // "editor.acceptSuggestionOnEnter": true,
+
+    // Controls the delay in ms after which quick suggestions will show up.
+    "editor.quickSuggestionsDelay": 10,
+
+    // Enable word based suggestions
+    "editor.wordBasedSuggestions": "off",
+
+    // Enable parameter hints
+    // "editor.parameterHints": false,
+
+    "editor.hover.sticky": false,
+
     "editor.rulers": [
         80,
         120
@@ -16,6 +37,9 @@
         },
         "black-formatter.args":
             ["--line-length=80"],
+            "editor.hover.enabled": false,
+            "editor.hover.sticky": false,
+
     },
     "ruff.codeAction.disableRuleComment": {
         "enable": true
@@ -33,4 +57,12 @@
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
+
+    "remote.WSL.fileWatcher.pollingInterval": 2000,
+    "terminal.integrated.scrollback": 10000,
+    "editor.hover.hidingDelay": 3000,
+    "workbench.hover.delay": 5000,
+    "workbench.sash.hoverDelay": 2000,
+    "python.analysis.languageServerMode": "light",
+    "python.languageServer": "Pylance",
 }
