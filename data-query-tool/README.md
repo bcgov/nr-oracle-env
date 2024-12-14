@@ -14,7 +14,7 @@ of relationship to that table:
 
 ## install relationships:
 
-
+`uv
 
 # Development
 
@@ -23,16 +23,24 @@ will likely work as well.
 
 Project is using uv for dependency management:
 
-Install uv: 
+Install uv:
 `python3.13 -m pip install uv`
 
 Create the initial project
 
 `uv init data-query-tool`
 
-Install dependencies
+add a new package dependency
 
 `uv add requests`
+
+install dependencies defined in lock file
+
+`uv sync`
+
+update/recreate the lock file from what is defined in pyproject.toml
+
+`uv lock`
 
 Install dev dependencies
 
@@ -52,4 +60,8 @@ Activate env
 
 Use tool without installing
 
-uvx toolname
+`uvx toolname`
+
+Upgrade a specific dependency
+
+`uv lock --upgrade-package requests`
