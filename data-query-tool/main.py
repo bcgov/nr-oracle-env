@@ -4,6 +4,7 @@ Start script to run the data query tool.
 
 import logging.config
 import pathlib
+import pprint
 
 import packaging.version
 from data_query_tool import constants, migration_files, oralib
@@ -12,7 +13,9 @@ LOGGER = None
 
 if __name__ == "__main__":
     # configure the logger
-    logging.config.fileConfig("logging.config")
+    log_conf_path = pathlib.Path(__file__).parent / "logging.config"
+
+    logging.config.fileConfig(log_conf_path)
     LOGGER = logging.getLogger(__name__)
 
     # migrations folder
@@ -22,9 +25,13 @@ if __name__ == "__main__":
     # constraints
     db_cons = constants.get_database_connection_parameters()
     ora = oralib.Oracle(db_cons)
-    tabs = ora.get_related_tables(table_name="SEEDLOT", schema="THE")
-    LOGGER.debug("Related tables: %s", tabs)
+    tabs = ora.get_related_tables_sa(table_name="SEEDLOT", schema="THE")
+    # LOGGER.debug("Related tables: %s", tabs)
 
+    pp = pprint.PrettyPrinter(indent=4)
+    pp.pprint(tabs)
+
+    # # create migrations from the table relationship structure
     initial_migration_version = packaging.version.parse("1.0.0")
     current_migration_file = migration_files.MigrationFile(
         version=initial_migration_version,

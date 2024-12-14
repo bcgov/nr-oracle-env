@@ -3,9 +3,11 @@ import pathlib
 
 import oracledb
 import packaging.version
+import sqlalchemy
 
 from . import constants, types
 
+print(f"name: {__name__}")
 LOGGER = logging.getLogger(__name__)
 
 
@@ -24,6 +26,15 @@ class Oracle:
         self.connection_params = connection_params
         self.connection = None
         self.connect()
+
+        self.sa_engine = None
+
+    def connect_sa(self):
+        if not self.sa_engine:
+            connstr = f"oracle+oracledb://{self.connection_params.username}:{self.connection_params.password}@{self.connection_params.host}:{self.connection_params.port}/?service_name={self.connection_params.service_name}"
+            self.sa_engine = sqlalchemy.create_engine(
+                connstr,
+            )
 
     def connect(self):
         """
@@ -48,6 +59,48 @@ class Oracle:
         Close connection to the database.
         """
         self.connection.close()
+
+    def get_related_tables_sa(
+        self, table_name: str, schema: str, existing=[]
+    ) -> types.DBDependencyMapping:
+        self.connect_sa()
+        metadata = sqlalchemy.MetaData()
+        table = sqlalchemy.Table(
+            table_name.lower(),
+            metadata,
+            schema=schema.lower(),
+            autoload_with=self.sa_engine,
+        )
+        related_struct = []
+        related_tables = []
+        for fk in table.foreign_keys:
+            LOGGER.debug(
+                f"Table {table_name} depends on {fk.column.table.name} {fk.column.table.primary_key.name}"
+            )
+            LOGGER.debug(fk)
+            related_tables.append((fk.column.table.schema, fk.column.table.name))
+        # get rid of dups
+        related_tables = set(related_tables)
+        for table_schema in related_tables:
+            related_table = table_schema[1]
+            related_schema = table_schema[0]
+            LOGGER.debug("related table: %s", related_table)
+            if related_table not in existing:
+                related_struct.append(
+                    self.get_related_tables_sa(
+                        table_name=related_table,
+                        schema=related_schema,
+                        existing=existing,
+                    )
+                )
+                existing.append(related_table)
+        relationship_struct = types.DBDependencyMapping(
+            object_name=table_name,
+            object_schema=schema,
+            object_type=types.ObjectType.TABLE,
+            dependency_list=related_struct,
+        )
+        return relationship_struct
 
     def get_related_tables(
         self,
@@ -153,10 +206,10 @@ class Oracle:
         migration_code.append(object_ddl + "\n")
         return migration_code
 
-
     def get_ddl(
         self, object_name: str, object_schema: str, object_type: types.ObjectType
     ):
+        LOGGER.debug("object name: %s", object_name)
         plsql_env_config = (
             "begin "
             "    dbms_metadata.set_transform_param (dbms_metadata.session_transform, 'SQLTERMINATOR', true); "
@@ -177,9 +230,9 @@ class Oracle:
         LOGGER.debug("runnig query to get ddl.")
         cursor.execute(
             query,
-            object_name=object_name,
-            object_type=object_type.name,
-            object_schema=object_schema,
+            object_name=object_name.upper(),
+            object_type=object_type.name.upper(),
+            object_schema=object_schema.upper(),
         )
         ddl_result_cell = cursor.fetchone()
         ddl_str = ddl_result_cell[0].read()
