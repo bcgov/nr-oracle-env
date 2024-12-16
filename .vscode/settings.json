@@ -30,15 +30,17 @@
     // ],
     "python.defaultInterpreterPath": "./data-query-tool/.venv/bin/python",
     "[python]": {
+
         "editor.defaultFormatter": "ms-python.black-formatter",
+        "black-formatter.args":
+            ["--line-length", "80"],
         "editor.formatOnSave": true,
         "editor.codeActionsOnSave": {
             "source.organizeImports": "explicit"
         },
-        "black-formatter.args":
-            ["--line-length=80"],
-            "editor.hover.enabled": false,
-            "editor.hover.sticky": false,
+
+        "editor.hover.enabled": false,
+        "editor.hover.sticky": false,
 
     },
     "ruff.codeAction.disableRuleComment": {
@@ -65,4 +67,5 @@
     "workbench.sash.hoverDelay": 2000,
     "python.analysis.languageServerMode": "light",
     "python.languageServer": "Pylance",
+    "git.autofetch": false,
 }
