@@ -2,7 +2,7 @@
 Start script to run the data query tool.
 """
 
-import logging.config
+import logging.config  # noqa: I001
 import pathlib
 import pprint
 
@@ -26,7 +26,6 @@ if __name__ == "__main__":
     db_cons = constants.get_database_connection_parameters()
     ora = oralib.Oracle(db_cons)
     tabs = ora.get_related_tables_sa(table_name="SEEDLOT", schema="THE")
-    # LOGGER.debug("Related tables: %s", tabs)
 
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(tabs)

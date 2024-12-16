@@ -18,8 +18,14 @@ dev = [
 [tool.ruff.lint]
 select = ["ALL"]
 
+[tool.isort]
+profile = "black"
+line_length = 80
+include_trailing_comma = true
+
 [tool.ruff]
 line-length = 80
+select = ["ALL"]
 
 # Ignore some errors in tests as they are not relevant
 [tool.ruff.lint.extend-per-file-ignores]

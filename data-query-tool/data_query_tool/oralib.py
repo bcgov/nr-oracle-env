@@ -1,13 +1,15 @@
+"""
+Utility functions for interacting with Oracle databases.
+
+"""
+
 import logging
-import pathlib
 
 import oracledb
-import packaging.version
 import sqlalchemy
 
-from . import constants, types
+from . import types
 
-print(f"name: {__name__}")
 LOGGER = logging.getLogger(__name__)
 
 
@@ -16,7 +18,7 @@ class Oracle:
     Communication with oracle database.
     """
 
-    def __init__(self, connection_params: types.ConnectionParameters):
+    def __init__(self, connection_params: types.ConnectionParameters) -> None:
         """
         Create instance of database class.
 
@@ -29,16 +31,26 @@ class Oracle:
 
         self.sa_engine = None
 
-    def connect_sa(self):
+    def connect_sa(self) -> None:
+        """
+        Populate the sqlalchemy connection engine.
+
+        Populates the property used for the sqlalchemy engine if it has not
+        already been populated.
+        """
         if not self.sa_engine:
             connstr = f"oracle+oracledb://{self.connection_params.username}:{self.connection_params.password}@{self.connection_params.host}:{self.connection_params.port}/?service_name={self.connection_params.service_name}"
             self.sa_engine = sqlalchemy.create_engine(
                 connstr,
             )
 
-    def connect(self):
+    def connect(self) -> None:
         """
         Connect to the database.
+
+        Using the parameters provided to the constructor, creates a connection
+        object to the database, and stored it in the object property
+        `connection`
         """
 
         LOGGER.debug(
@@ -54,15 +66,56 @@ class Oracle:
             service_name=self.connection_params.service_name,
         )
 
-    def disconnect(self):
+    def disconnect(self) -> None:
         """
         Close connection to the database.
         """
         self.connection.close()
+        self.connection = None
 
     def get_related_tables_sa(
-        self, table_name: str, schema: str, existing=[]
+        self,
+        table_name: str,
+        schema: str,
+        existing: list[tuple[str, str]] | None,
     ) -> types.DBDependencyMapping:
+        """
+        Return a hierarchical data structure with table dependencies.
+
+        Queries the database metadata to determine what all the table foreign
+        key relationships are, and then queries related tables for their
+        foreign key relations.
+
+        Example structure:
+        .. code-block:: python
+
+        DBDependencyMapping(
+            object_type=<ObjectType.TABLE: 1>,
+            object_name='SEEDLOT',
+            object_schema='THE',
+            dependency_list=[
+                DBDependencyMapping(
+                    object_type=<ObjectType.TABLE: 1>,
+                    object_name='superior_provenance',
+                    object_schema='the',
+                    dependency_list=[
+                        DBDependencyMapping(object_type=<ObjectType.TABLE: 1>,
+                            object_name='genetic_worth_code',
+                            object_schema='the',
+                            dependency_list=[   ...
+
+
+        :param table_name: _description_
+        :type table_name: str
+        :param schema: _description_
+        :type schema: str
+        :param existing: _description_, defaults to []
+        :type existing: list, optional
+        :return: _description_
+        :rtype: types.DBDependencyMapping
+        """
+        if not existing:
+            existing = []
         self.connect_sa()
         metadata = sqlalchemy.MetaData()
         table = sqlalchemy.Table(
@@ -75,32 +128,35 @@ class Oracle:
         related_tables = []
         for fk in table.foreign_keys:
             LOGGER.debug(
-                f"Table {table_name} depends on {fk.column.table.name} {fk.column.table.primary_key.name}"
+                "Table %s depends on %s %s",
+                table_name,
+                fk.column.table.name,
+                fk.column.table.primary_key.name,
             )
-            LOGGER.debug(fk)
-            related_tables.append((fk.column.table.schema, fk.column.table.name))
+            related_tables.append(
+                (fk.column.table.schema, fk.column.table.name))
         # get rid of dups
         related_tables = set(related_tables)
         for table_schema in related_tables:
             related_table = table_schema[1]
             related_schema = table_schema[0]
             LOGGER.debug("related table: %s", related_table)
-            if related_table not in existing:
+            if (related_schema, related_table) not in existing:
                 related_struct.append(
                     self.get_related_tables_sa(
                         table_name=related_table,
                         schema=related_schema,
                         existing=existing,
-                    )
+                    ),
                 )
-                existing.append(related_table)
-        relationship_struct = types.DBDependencyMapping(
+                existing.append((related_schema, related_table))
+        return types.DBDependencyMapping(
             object_name=table_name,
             object_schema=schema,
             object_type=types.ObjectType.TABLE,
             dependency_list=related_struct,
         )
-        return relationship_struct
+
 
     def get_related_tables(
         self,
@@ -124,7 +180,6 @@ class Oracle:
         """
         cursor = self.connection.cursor()
         LOGGER.debug("table name / schema: %s / %s", table_name, schema)
-        # cursor.execute(query, {"table_name": table_name, "schema": schema})
         cursor.execute(query, table_name=table_name, schema=schema)
         cur_results = cursor.fetchall()
         LOGGER.debug("cursor results: %s", cur_results)
@@ -138,10 +193,10 @@ class Oracle:
             LOGGER.debug("related table: %s", related_table)
             if related_table:
                 related_struct.append(
-                    self.get_related_tables(table_name=related_table, schema=schema)
+                    self.get_related_tables(
+                        table_name=related_table, schema=schema),
                 )
 
-        # relationship_struct = {table_name: related_struct}
         relationship_struct = types.DBDependencyMapping(
             object_name=table_name,
             object_schema=schema,
@@ -207,18 +262,42 @@ class Oracle:
         return migration_code
 
     def get_ddl(
-        self, object_name: str, object_schema: str, object_type: types.ObjectType
-    ):
+        self, object_name: str, object_schema: str,
+        object_type: types.ObjectType,
+    ) -> str:
+        """
+        Return ddl for given object.
+
+        Queries the databases metdata / getddl function to retrieve the ddl
+        associated with the object.  Configures the metadata query so that it
+        doesn't return parameters like Tablespace, max extents, etc...
+
+        :param object_name: The name of the object to generate the DDL for.
+        :type object_name: str
+        :param object_schema: The schema for the given object.
+        :type object_schema: str
+        :param object_type: The type of database object.. (currently only
+            supports Table)
+        :type object_type: types.ObjectType
+        :return: The ddl for the given object.
+        :rtype: str
+        """
         LOGGER.debug("object name: %s", object_name)
-        plsql_env_config = (
-            "begin "
-            "    dbms_metadata.set_transform_param (dbms_metadata.session_transform, 'SQLTERMINATOR', true); "
-            "    dbms_metadata.set_transform_param (dbms_metadata.session_transform, 'PRETTY', true); "
-            "    dbms_metadata.set_transform_param (dbms_metadata.session_transform, 'SEGMENT_ATTRIBUTES', false); "
-            "    dbms_metadata.set_transform_param (dbms_metadata.session_transform, 'STORAGE', false); "
-            "    dbms_metadata.set_transform_param (dbms_metadata.session_transform, 'TABLESPACE', false); "
-            "end; "
-        )
+        plsql_env_config = """
+            begin
+                dbms_metadata.set_transform_param
+                    (dbms_metadata.session_transform, 'SQLTERMINATOR', true);
+                dbms_metadata.set_transform_param
+                    (dbms_metadata.session_transform, 'PRETTY', true);
+                dbms_metadata.set_transform_param
+                    (dbms_metadata.session_transform,
+                    'SEGMENT_ATTRIBUTES', false);
+                dbms_metadata.set_transform_param
+                    (dbms_metadata.session_transform, 'STORAGE', false);
+                dbms_metadata.set_transform_param
+                    (dbms_metadata.session_transform, 'TABLESPACE', false);
+            end;
+            """
         query = (
             "SELECT "
             "dbms_metadata.get_ddl(:object_type, :object_name, :object_schema) "
