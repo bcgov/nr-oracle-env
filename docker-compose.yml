@@ -9,8 +9,14 @@ x-var:
     oracle
   - &ORA_PORT
     1522
-  - &ORA_FLYWAY_URL
-    jdbc:oracle:thin:@//oracle:1521/DBDOCK_01
+  - &ORA_FLYWAY_URL_TEST
+    jdbc:oracle:thin:@//oracle-test:1521/DBDOCK_TEST_01
+  - &ORA_HOST_TEST
+    oracle-test
+  - &ORA_PORT_TEST
+    1523
+  - &ORA_DATABASE_TEST
+    DBDOCK_TEST_01
 
 x-oracle-vars: &oracle-vars
   ORACLE_DATABASE: *ORA_DATABASE
@@ -18,8 +24,14 @@ x-oracle-vars: &oracle-vars
   ORACLE_HOST: *ORA_HOST
   APP_USER: *ORA_USER
   APP_USER_PASSWORD: *ORA_PASSWORD
-  FLYWAY_URL: *ORA_FLYWAY_URL
 
+x-oracle-vars: &oracle-vars-test
+  ORACLE_DATABASE: *ORA_DATABASE_TEST
+  ORACLE_PASSWORD: *ORA_PASSWORD
+  ORACLE_HOST: *ORA_HOST_TEST
+  APP_USER: *ORA_USER
+  APP_USER_PASSWORD: *ORA_PASSWORD
+  FLYWAY_URL: *ORA_FLYWAY_URL_TEST
 
 services:
   # Name of the Docker Compose service
@@ -50,7 +62,7 @@ services:
     container_name: oracle-dp-import
     # Provide passwords and other environment variables to the container
     environment:
-      <<: *oracle-vars
+      <<: *oracle-vars-test
     restart: "no"
     entrypoint: ["/bin/bash", "/opt/oracle/scripts/run_data_pump_import.sh"]
     volumes:
@@ -59,6 +71,44 @@ services:
       oracle:
         condition: service_healthy
 
+  oracle-test:
+    # Docker Hub image (feel free to change the tag "latest" to any other available one)
+    image: gvenzl/oracle-free:latest
+    # Forward Oracle port to localhost
+    container_name: oracle-test
+    ports:
+      - "1523:1521"
+    # Provide passwords and other environment variables to the container
+    environment:
+      <<: *oracle-vars-test
+    # Customize healthcheck script options for startup
+    healthcheck:
+      test: ["CMD", "/opt/oracle/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Mount a local SQL file to initialize your schema at startup
+    volumes:
+      - ./db_init_test:/container-entrypoint-initdb.d # mount the init scripts
+      - oracle-test-data-struct:/opt/oracle/oradata  # Mount the volume to the Oracle data directory
+
+  oracle-migrations-test:
+    image: flyway/flyway:10-alpine
+    container_name: oracle-migrations-test
+    command: info migrate info
+    volumes:
+      - "./data-query-tool/data/migrations:/flyway/sql:ro"
+    environment:
+      <<: *oracle-vars-test
+      FLYWAY_USER: *ORA_USER
+      FLYWAY_PASSWORD: *ORA_PASSWORD
+      FLYWAY_DEFAULT_SCHEMA: *ORA_USER
+      FLYWAY_BASELINE_ON_MIGRATE: true
+    depends_on:
+      oracle-test:
+        condition: service_healthy
+
+
 volumes:
   oracle-data-struct:
-
+  oracle-test-data-struct:
