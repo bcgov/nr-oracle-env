@@ -60,8 +60,6 @@ def show_deps(seed_table, schema, out_format):
             table_name=seed_table, schema=schema.upper())
 
     if out_format == "text":
-        LOGGER.debug("got here")
-        # LOGGER.debug("tabs: %s", tabs)
         text = tabs.to_str()
         print(text)
     elif out_format == "json":
