@@ -23,6 +23,15 @@ class ObjectType(Enum):
 
 
 @dataclass
+class Table:
+    """
+    Table / Schema combination.
+    """
+
+    table_name: str
+    schema: str
+
+@dataclass
 class OCParams:
     """
     Data class for OC connection parameters.
