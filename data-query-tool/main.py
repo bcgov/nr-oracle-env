@@ -133,7 +133,6 @@ def create_migrations(seed_table, schema, migration_folder, migration_version, m
         ora.exported_tables.add_tables(tables)
     # add the existing tables to the ora object so that it doesn't generate
     # duplicate migrations
-    # ora.exported_tables.add_tables(tables=existing_tables, schema='THE')
 
     migrations_list = ora.create_migrations(
             tabs,
