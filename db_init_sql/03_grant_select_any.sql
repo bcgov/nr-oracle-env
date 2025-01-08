@@ -11,3 +11,5 @@ grant execute on dbms_metadata to THE;
 -- permissions to change default directory used by datapump
 
 grant CREATE ANY DIRECTORY to THE;
+
+GRANT SELECT ANY DICTIONARY TO THE;
