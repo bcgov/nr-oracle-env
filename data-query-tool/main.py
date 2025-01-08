@@ -112,17 +112,34 @@ def create_migrations(seed_table, schema, migration_folder, migration_version, m
     # create migrations from the table relationship structure
     # no intelligence at the moment, but down the road may want to add the
     # ability to increment the version number based on the existing migration
+
+    # get existing migration files
+    # extract the tables that are defined in those files
+    # add those tables to the ora objects exported_tables properties
+
     initial_migration_version = packaging.version.parse(migration_version)
+
     current_migration_file = migration_files.MigrationFile(
         version=initial_migration_version,
         description=migration_name,
         migration_folder=migrations_folder,
     )
+    existing_migration_files = current_migration_file.get_existing_migration_files()
+    LOGGER.debug("existing_migration_files: %s", existing_migration_files)
+
+    existing_tables = []
+    for migration_file in existing_migration_files:
+        migration_file_parser = migration_files.MigrationFileParser(migration_file)
+        tables = migration_file_parser.get_tables()
+        LOGGER.debug("tables: %s", tables)
+        ora.exported_tables.add_tables(tables)
+    # add the existing tables to the ora object so that it doesn't generate
+    # duplicate migrations
+    # ora.exported_tables.add_tables(tables=existing_tables, schema='THE')
 
     migrations_list = ora.create_migrations(
-        tabs,
-    )
-
+            tabs,
+        )
     # now write migrations to a migration file
     current_migration_file.write_migrations(migrations_list)
 
