@@ -1,12 +1,10 @@
 """
 Utility functions for interacting with Oracle databases.
-
 """
 
 import logging
-
-import oracledb
 import sqlalchemy
+import oracledb
 
 from . import types
 
@@ -33,7 +31,6 @@ class Oracle:
 
         # used to keep track of what tables have already been added to a
         # migration file.
-        # self.exported_tables = []
         self.exported_tables = ExportTables()
 
     def connect_sa(self) -> None:
@@ -138,8 +135,7 @@ class Oracle:
                 fk.column.table.name,
                 fk.column.table.primary_key.name,
             )
-            related_tables.append(
-                (fk.column.table.schema, fk.column.table.name))
+            related_tables.append((fk.column.table.schema, fk.column.table.name))
         # get rid of dups
         related_tables = set(related_tables)
         for table_schema in related_tables:
@@ -170,8 +166,8 @@ class Oracle:
         """
         Create recursive data structure that defines relationships to table.
 
-        deprecated: use get_related_tables_sa instead.  Leaving this code in here
-                    for now, as eventually may want to pivot back to this
+        deprecated: use get_related_tables_sa instead.  Leaving this code in
+                    here for now, as eventually may want to pivot back to this
                     approach where the sql to retrieve the relationships is
                     explicitly defined.  Will provide more control.
 
@@ -202,8 +198,7 @@ class Oracle:
             LOGGER.debug("related table: %s", related_table)
             if related_table:
                 related_struct.append(
-                    self.get_related_tables(
-                        table_name=related_table, schema=schema),
+                    self.get_related_tables(table_name=related_table, schema=schema),
                 )
 
         relationship_struct = types.DBDependencyMapping(
@@ -238,10 +233,13 @@ class Oracle:
         """
         migration_code = []
         for relation in relationships.dependency_list:
-            if not relation.dependency_list and \
-                     not self.exported_tables.exists(table_name=relation.object_name, schema=relation.object_schema):
-                self.exported_tables.add_table(table_name=relation.object_name, schema=relation.object_schema)
-                # self.exported_tables.append(object_full_name)
+            # no dependencies and not already exported
+            if not relation.dependency_list and not self.exported_tables.exists(
+                table_name=relation.object_name, schema=relation.object_schema
+            ):
+                self.exported_tables.add_table(
+                    table_name=relation.object_name, schema=relation.object_schema
+                )
                 # create the migration here now
                 object_ddl = self.get_ddl(
                     object_name=relation.object_name,
@@ -250,10 +248,15 @@ class Oracle:
                 )
                 migration_code.append(object_ddl + "\n")
                 LOGGER.debug("DDL: TABLE: %s", relation.object_name)
-            elif not self.exported_tables.exists(table_name=relation.object_name, schema=relation.object_schema):
+            # dependencies and not already exported
+            elif not self.exported_tables.exists(
+                table_name=relation.object_name, schema=relation.object_schema
+            ):
                 # first call itself to ensure the migrations have been
                 # created that need to take place first.
-                self.exported_tables.add_table(table_name=relation.object_name, schema=relation.object_schema)
+                self.exported_tables.add_table(
+                    table_name=relation.object_name, schema=relation.object_schema
+                )
                 migration_code = migration_code + self.create_migrations(
                     relationships=relation,
                 )
@@ -265,8 +268,12 @@ class Oracle:
                 )
                 migration_code.append(object_ddl + "\n")
 
-        if not self.exported_tables.exists(table_name=relation.object_name, schema=relation.object_schema):
-            self.exported_tables.add_table(table_name=relation.object_name, schema=relation.object_schema)
+        if not self.exported_tables.exists(
+            table_name=relation.object_name, schema=relation.object_schema
+        ):
+            self.exported_tables.add_table(
+                table_name=relation.object_name, schema=relation.object_schema
+            )
 
             LOGGER.debug("DDL: TABLE: %s", relationships.object_name)
             object_ddl = self.get_ddl(
@@ -278,7 +285,9 @@ class Oracle:
         return migration_code
 
     def get_ddl(
-        self, object_name: str, object_schema: str,
+        self,
+        object_name: str,
+        object_schema: str,
         object_type: types.ObjectType,
     ) -> str:
         """
@@ -335,39 +344,73 @@ class Oracle:
         cursor.close()
         return ddl_str
 
+    def get_trigger_deps(self, table_name: str, schema: str):
+        """
+        Identify the triggers that are defined for a given table.
+
+        Queries the metadata to identify triggers that have been defined on the
+        provided table
+
+        :param table_name: The table name to get triggers for.
+        :type table_name: str
+        :param schema: The schema that contains the input table
+        :type schema: str
+
+        """
+        query = """
+            SELECT
+                TRIGGER_NAME,
+                TRIGGER_TYPE,
+                TRIGGERING_EVENT,
+                TABLE_NAME,
+                STATUS
+            FROM
+                ALL_TRIGGERS
+            WHERE
+                where TABLE_NAME=:table_name and OWNER=:schema
+        """
+        cursor = self.connection.cursor()
+        cursor.execute(query, table_name=table_name, schema=schema)
+        cur_results = cursor.fetchall()
+
 
 class ExportTables:
     """
-    Used to keep track of what tables have already been added to a migration file.
+    Used to keep track of what tables have been added to a migration file.
+
+    This is used to prevent duplicate migrations from being created, which would
+    create an error when the migrations are run.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Class constructor.
+        """
         self.exported_tables = []
 
-    def add_table(self, table_name: str, schema: str):
+    def add_table(self, table_name: str, schema: str) -> None:
         """
         Add table to the exported tables list.
 
-        :param table_name: _description_
-        :type table_name: str
-        :param schema: _description_
+        :param table_name: input table name
+        :type table_name:
+        :param schema: Input schema name
         :type schema: str
         """
         self.exported_tables.append(f"{schema.upper()}.{table_name.upper()}")
 
-    def add_tables(self, tables: list[types.Table]):
+    def add_tables(self, tables: list[types.Table]) -> None:
         """
         Add list of tables to the exported tables list.
 
-        :param tables: _description_
-        :type tables: list[str]
-        :param schema: _description_
-        :type schema: str
+        :param tables: list of table to add to the exported tables list, that
+            is used to keep track of table that have already been exported.
+        :type tables: list[types.Table]
         """
         for table_struct in tables:
-            self.add_table(table_name=table_struct.table_name,
-                           schema=table_struct.schema)
-
+            self.add_table(
+                table_name=table_struct.table_name, schema=table_struct.schema
+            )
 
     def exists(self, table_name: str, schema: str) -> bool:
         """
