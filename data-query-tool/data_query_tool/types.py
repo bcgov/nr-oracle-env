@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
-import logging
 
 LOGGER = logging.getLogger(__name__)
+
 
 class ObjectType(Enum):
     """
@@ -20,6 +21,7 @@ class ObjectType(Enum):
     TRIGGER = 3
     PROCEDURE = 4
     FUNCTION = 5
+    SEQUENCE = 6
 
 
 @dataclass
@@ -30,6 +32,18 @@ class Table:
 
     table_name: str
     schema: str
+
+
+@dataclass
+class Dependency:
+    """
+    Dependency class
+    """
+
+    object_type: ObjectType
+    object_name: str
+    object_schema: str
+
 
 @dataclass
 class OCParams:
