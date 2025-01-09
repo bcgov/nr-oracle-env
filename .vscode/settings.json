@@ -30,8 +30,9 @@
         "--unfixable=F401", "--extend-ignore=D200,D202,D212"
     ],
     "python.testing.pytestArgs": [
-        "data-query-tool"
+        "./data-query-tool"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
 }
+
