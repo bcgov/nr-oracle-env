@@ -24,8 +24,11 @@ def test_get_triggers(ora_lib_fixture):
     LOGGER.debug("got here")
     LOGGER.debug("ora: %s", ora)
     results = ora_lib_fixture.get_triggers(schema="THE", table_name="SEEDLOT")
+    LOGGER.debug("results: %s", results)
     assert results
-    assert results[0][0] == "SPR_SEEDLOT_AR_IUD_TRG"
+    assert "SPR_SEEDLOT_AR_IUD_TRG" in results
+    results = ora_lib_fixture.get_triggers(schema="THE", table_name="SEEDLOT_AUDIT")
+    LOGGER.debug("seedlot audit results: %s", results)
 
 
 def test_get_trigger_deps(ora_lib_fixture):

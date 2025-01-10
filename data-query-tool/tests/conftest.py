@@ -21,8 +21,6 @@ from data_query_tool import constants
 
 pytest_plugins = [
     "fixtures.oracle_struct_fixtures",
+    "fixtures.migration_file_fixtures",
+    "fixtures.generics_fixtures",
 ]
-testSession = None
-testSession = None
-testSession = None
-testSession = None
