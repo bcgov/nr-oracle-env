@@ -45,6 +45,11 @@ class Dependency:
     object_schema: str
 
 
+# creating this alias, because in some cases it feels more appropriate
+# to call something a Database obejct rather than a dependency
+DbObject = Dependency
+
+
 @dataclass
 class OCParams:
     """
@@ -109,7 +114,7 @@ class AppConstants:
 
 
 @dataclass
-class DBDependencyMapping:
+class DBDependencyMapping(Dependency):
     """
     Data class for table dependencies.
 
@@ -118,9 +123,6 @@ class DBDependencyMapping:
 
     """
 
-    object_type: ObjectType
-    object_name: str
-    object_schema: str
     dependency_list: list[DBDependencyMapping | None]
 
     def to_dict(self):

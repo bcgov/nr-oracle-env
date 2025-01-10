@@ -3,6 +3,7 @@ Utility functions for interacting with Oracle databases.
 """
 
 import logging
+import typing
 
 import oracledb
 import sqlalchemy
@@ -32,7 +33,7 @@ class Oracle:
 
         # used to keep track of what tables have already been added to a
         # migration file.
-        self.exported_tables = ExportTables()
+        self.exported_objects = ExportedObjects()
 
     def connect_sa(self) -> None:
         """
@@ -151,7 +152,21 @@ class Oracle:
                         existing=existing,
                     ),
                 )
-                existing.append((related_schema, related_table))
+                related_struct.extend(
+                    self.get_trigger_deps(
+                        table_name=related_table,
+                        schema=related_schema,
+                    )
+                )
+
+        # having addressed all the dependencies add the original table that
+        # was passed in
+
+        # get trigger deps for the original table
+        LOGGER.debug("table name: %s", table_name)
+        related_struct.extend(
+            self.get_trigger_deps(table_name=table_name, schema=schema)
+        )
         return types.DBDependencyMapping(
             object_name=table_name,
             object_schema=schema,
@@ -234,65 +249,56 @@ class Oracle:
         """
         migration_code = []
         for relation in relationships.dependency_list:
+            dependency_obj = typing.cast(types.Dependency, relation)
             # no dependencies and not already exported
-            if not relation.dependency_list and not self.exported_tables.exists(
-                table_name=relation.object_name, schema=relation.object_schema
+            if not relation.dependency_list and not self.exported_objects.exists(
+                dependency_obj
             ):
-                self.exported_tables.add_table(
-                    table_name=relation.object_name, schema=relation.object_schema
-                )
+                self.exported_objects.add_object(dependency_obj)
                 # create the migration here now
                 object_ddls = self.get_ddl(
-                    object_name=relation.object_name,
-                    object_type=relation.object_type,
-                    object_schema=relation.object_schema,
+                    dependency_obj,
                 )
                 for object_ddl in object_ddls:
                     migration_code.append(object_ddl + "\n")
                 LOGGER.debug("DDL: TABLE: %s", relation.object_name)
             # dependencies and not already exported
-            elif not self.exported_tables.exists(
-                table_name=relation.object_name, schema=relation.object_schema
+            elif not self.exported_objects.exists(
+                dependency_obj,
             ):
                 # first call itself to ensure the migrations have been
                 # created that need to take place first.
-                self.exported_tables.add_table(
-                    table_name=relation.object_name, schema=relation.object_schema
-                )
+                self.exported_objects.add_object(dependency_obj)
                 migration_code = migration_code + self.create_migrations(
                     relationships=relation,
                 )
                 LOGGER.debug("DDL: TABLE: %s", relation.object_name)
-                object_ddls = self.get_ddl(
-                    object_name=relation.object_name,
-                    object_type=relation.object_type,
-                    object_schema=relation.object_schema,
-                )
+                object_ddls = self.get_ddl(dependency_obj)
                 for object_ddl in object_ddls:
                     migration_code.append(object_ddl + "\n")
 
-        if not self.exported_tables.exists(
-            table_name=relation.object_name, schema=relation.object_schema
+        dependency_obj = typing.cast(types.Dependency, relationships)
+        if not self.exported_objects.exists(
+            dependency_obj,
         ):
-            self.exported_tables.add_table(
-                table_name=relation.object_name, schema=relation.object_schema
+            self.exported_objects.add_object(
+                dependency_obj,
             )
 
             LOGGER.debug("DDL: TABLE: %s", relationships.object_name)
-            object_ddls = self.get_ddl(
-                object_name=relationships.object_name,
-                object_type=relationships.object_type,
-                object_schema=relationships.object_schema,
-            )
+            # object_ddls = self.get_ddl(
+            #     object_name=relationships.object_name,
+            #     object_type=relationships.object_type,
+            #     object_schema=relationships.object_schema,
+            # )
+            object_ddls = self.get_ddl(dependency_obj)
             for object_ddl in object_ddls:
                 migration_code.append(object_ddl + "\n")
         return migration_code
 
     def get_ddl(
         self,
-        object_name: str,
-        object_schema: str,
-        object_type: types.ObjectType,
+        db_object: types.Dependency,
     ) -> list[str]:
         """
         Return ddl for given object.
@@ -312,7 +318,7 @@ class Oracle:
             create the object.
         :rtype: list[str]
         """
-        LOGGER.debug("object name: %s", object_name)
+        LOGGER.debug("object name: %s", db_object.object_name)
         plsql_env_config = """
             begin
                 dbms_metadata.set_transform_param
@@ -339,19 +345,19 @@ class Oracle:
         LOGGER.debug("runnig query to get ddl.")
         cursor.execute(
             query,
-            object_name=object_name.upper(),
-            object_type=object_type.name.upper(),
-            object_schema=object_schema.upper(),
+            object_name=db_object.object_name.upper(),
+            object_type=db_object.object_type.name.upper(),
+            object_schema=db_object.object_schema.upper(),
         )
         ddl_result_cell = cursor.fetchone()
         ddl_str = ddl_result_cell[0].read()
-        LOGGER.debug("ddl for %s is %s", object_name, ddl_str)
+        LOGGER.debug("ddl for %s is %s", db_object.object_name, ddl_str)
         cursor.close()
-        return ddl_str
+        return [ddl_str]
 
     def get_triggers(
         self, table_name: str, schema: str, include_disabled: bool = False
-    ):
+    ) -> list[types.Dependency]:
         """
         Identify the triggers that are defined for a given table.
 
@@ -368,21 +374,33 @@ class Oracle:
         """
         query = """
             SELECT
-                TRIGGER_NAME
+                TRIGGER_NAME,
+                OWNER
             FROM
                 ALL_TRIGGERS
             WHERE
                 TABLE_NAME=:table_name and OWNER=:schema AND STATUS = 'ENABLED'
         """
         cursor = self.connection.cursor()
-        LOGGER.debug("table name / schema: %s / %s", table_name, schema)
+        LOGGER.debug("table name / schema: %s / %s", table_name.upper(), schema.upper())
 
         cursor.execute(query, table_name=table_name, schema=schema)
         cur_results = cursor.fetchall()
+        # convert into a simple list of trigger names
         LOGGER.debug("cursor results: %s", cur_results)
-        return cur_results
+        trigger_list = []
+        for cur_result in cur_results:
+            dep_obj = types.Dependency(
+                object_type=types.ObjectType.TRIGGER,
+                object_name=cur_result[0],
+                object_schema=cur_result[1],
+            )
+            trigger_list.append(dep_obj)
+        return trigger_list
 
-    def get_trigger_deps(self, table_name: str, schema: str) -> list[types.Dependency]:
+    def get_trigger_deps(
+        self, table_name: str, schema: str
+    ) -> list[types.DBDependencyMapping]:
         """
         Identify the triggers dependencies for the given table.
 
@@ -399,36 +417,61 @@ class Oracle:
         :return: a list of trigger dependencies for the given table.
         :rtype: list[types.Dependency]
         """
+        # get any triggers for this table
         triggers = self.get_triggers(table_name=table_name, schema=schema)
         dependencies = []
-        for trigger in triggers:
-            trigger_name = trigger[0]
-            query = """
-                SELECT REFERENCED_NAME, REFERENCED_TYPE, REFERENCED_OWNER
-                FROM DBA_DEPENDENCIES
-                WHERE
-                    name=:trigger_name AND
-                    owner=:schema AND
-                    (TYPE != 'TRIGGER' OR REFERENCED_OWNER != 'SYS') AND
-                    (REFERENCED_NAME!=:table_name OR REFERENCED_TYPE != 'TABLE')
-            """
-            cursor = self.connection.cursor()
-            cursor.execute(
-                query, trigger_name=trigger_name, schema=schema, table_name=table_name
-            )
-            cur_results = cursor.fetchall()
-            for cur_result in cur_results:
-                object_type = types.ObjectType[cur_result[1]]
-                dependency = types.Dependency(
-                    object_name=cur_result[0],
-                    object_type=object_type,
-                    object_schema=cur_result[2],
+        if triggers:
+            for trig_dep in triggers:
+                trigger_name = trig_dep.object_name
+                trigger_schema = trig_dep.object_schema
+                # query database for trigger dependencies
+                query = """
+                    SELECT REFERENCED_NAME, REFERENCED_TYPE, REFERENCED_OWNER
+                    FROM DBA_DEPENDENCIES
+                    WHERE
+                        name=:trigger_name AND
+                        owner=:schema AND
+                        (TYPE != 'TRIGGER' OR REFERENCED_OWNER != 'SYS') AND
+                        (REFERENCED_NAME!=:table_name OR REFERENCED_TYPE != 'TABLE')
+                """
+                cursor = self.connection.cursor()
+                cursor.execute(
+                    query,
+                    trigger_name=trigger_name,
+                    schema=trigger_schema,
+                    table_name=table_name,
                 )
-                dependencies.append(dependency)
-            LOGGER.debug("cursor results: %s", cur_results)
+                cur_results = cursor.fetchall()
+                deps = []
+                # iterating over the trigger dependencies
+                for cur_result in cur_results:
+                    object_type = types.ObjectType[cur_result[1]]
+                    # if its a table then get its dependencies
+                    if object_type == types.ObjectType.TABLE:
+                        deps.append(
+                            self.get_related_tables_sa(
+                                table_name=cur_result[0], schema=cur_result[2]
+                            )
+                        )
+                    elif object_type == types.ObjectType.SEQUENCE:
+                        deps.append(
+                            types.DBDependencyMapping(
+                                object_name=cur_result[0],
+                                object_type=types.ObjectType.SEQUENCE,
+                                object_schema=cur_result[2],
+                                dependency_list=[],
+                            )
+                        )
+
+                trigger_dep = types.DBDependencyMapping(
+                    object_name=trigger_name,
+                    object_type=trig_dep.object_type,
+                    object_schema=trigger_schema,
+                    dependency_list=deps,
+                )
+                dependencies.append(trigger_dep)
         return dependencies
 
-    def add_trigger_deps(self)
 
 class ExportTables:
     """
@@ -481,3 +524,80 @@ class ExportTables:
         """
         return f"{schema.upper()}.{table_name.upper()}" in self.exported_tables
         return f"{schema.upper()}.{table_name.upper()}" in self.exported_tables
+
+
+class ExportedObjects:
+    """
+    Used to keep track of what objects have been added to a migration files.
+
+    This is used to prevent duplicate migrations from being created, which would
+    create an error when the migrations are run.
+    """
+
+    def __init__(self) -> None:
+        """
+        Class constructor.
+        """
+        self.exported_objects = []
+
+    def add_object(self, db_object: types.Dependency) -> None:
+        """
+        Add table to the exported tables list.
+
+        :param table_name: input table name
+        :type table_name:
+        :param schema: Input schema name
+        :type schema: str
+        """
+        self.exported_objects.append(db_object)
+
+    def add_objects(self, db_objects: list[types.Dependency]) -> None:
+        """
+        Add list of tables to the exported tables list.
+
+        :param tables: list of table to add to the exported tables list, that
+            is used to keep track of table that have already been exported.
+        :type tables: list[types.Table]
+        """
+        for db_object in db_objects:
+            self.add_object(db_object=db_object)
+
+    def exists(self, db_object: types.Dependency) -> bool:
+        """
+        Check if table exists in the exported tables list.
+
+        :param table_name: _description_
+        :type table_name: str
+        :param schema: _description_
+        :type schema: str
+        :return: _description_
+        :rtype: bool
+        """
+        exists = False
+        for obj in self.exported_objects:
+            if (
+                obj.object_name.lower() == db_object.object_name.lower()
+                and obj.object_schema.lower() == db_object.object_schema.lower()
+                and obj.object_type == db_object.object_type
+            ):
+                exists = True
+                break
+        return exists
+
+    def table_exists(self, table_name: str, table_schema: str) -> bool:
+        """
+        Check if table exists in the exported tables list.
+
+        :param table_name: _description_
+        :type table_name: str
+        :param schema: _description_
+        :type schema: str
+        :return: _description_
+        :rtype: bool
+        """
+        db_object = types.Dependency(
+            object_name=table_name,
+            object_schema=table_schema,
+            object_type=types.ObjectType.TABLE,
+        )
+        return self.exists(db_object)
