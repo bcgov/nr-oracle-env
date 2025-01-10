@@ -56,7 +56,7 @@ def configure_logging():
     help="Include tables and other objects like sequences that"
     + " are referenced by triggers.",
 )
-def show_deps(seed_table, schema, out_format):
+def show_deps(seed_table, schema, out_format, no_triggers):
     configure_logging()
     LOGGER.debug("seed tables: %s", seed_table)
     LOGGER.debug("schema: %s", schema)
@@ -98,6 +98,7 @@ def show_deps(seed_table, schema, out_format):
     required=False,
     help="Directory where the migration file will be created, defaults to the "
     "data/migrations directory",
+    default="data/migrations",
 )
 @click.option(
     "--migration-version",
@@ -119,7 +120,7 @@ def create_migrations(
 ):
     configure_logging()
     if not migration_folder:
-        migrations_folder = pathlib.Path(__file__).parent / "data" / "migrations"
+        migration_folder = pathlib.Path(__file__).parent / "data" / "migrations"
 
     db_cons = constants.get_database_connection_parameters()
     ora = oralib.Oracle(db_cons)
@@ -134,27 +135,27 @@ def create_migrations(
     # add those tables to the ora objects exported_tables properties
 
     initial_migration_version = packaging.version.parse(migration_version)
-
+    LOGGER.debug("migration folder: %s", migration_folder)
     current_migration_file = migration_files.MigrationFile(
         version=initial_migration_version,
         description=migration_name,
-        migration_folder=migrations_folder,
+        migration_folder_str=str(migration_folder),
     )
     existing_migration_files = current_migration_file.get_existing_migration_files()
     LOGGER.debug("existing_migration_files: %s", existing_migration_files)
 
-    existing_tables = []
     for migration_file in existing_migration_files:
         migration_file_parser = migration_files.MigrationFileParser(migration_file)
-        tables = migration_file_parser.get_tables()
-        LOGGER.debug("tables: %s", tables)
-        ora.exported_tables.add_tables(tables)
+        db_objects = migration_file_parser.get_dependency()
+        LOGGER.debug("db objects: %s", db_objects)
+        ora.exported_objects.add_objects(db_objects)
     # add the existing tables to the ora object so that it doesn't generate
     # duplicate migrations
 
-    migrations_list = ora.create_migrations(
+    ddl_cache = ora.create_migrations(
         tabs,
     )
+    migrations_list = ddl_cache.get_ddl()
     # now write migrations to a migration file
     current_migration_file.write_migrations(migrations_list)
 

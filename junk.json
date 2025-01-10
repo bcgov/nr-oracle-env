@@ -56,3 +56,20 @@ python main.py create-migrations --seed-table RESULTS_INBOX_PREVIEW --migration-
 python main.py create-migrations --seed-table SEEDLOT --migration-name seedlot
 python main.py create-migrations --seed-table FORHEALTH_RSLT --migration-name for_health_result
 
+[Dependency(object_type=<ObjectType.TABLE: 1>, object_name='SILV_RESERVE_CODE', object_schema='THE'),
+  Dependency(object_type=<ObjectType.TABLE: 1>,   object_name='SILV_RESERVE_CODE', object_schema='THE'),
+  Dependency(object_type=<ObjectType.TABLE: 1>,   object_name='SILV_RESERVE_OBJECTIVE_CODE', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='SILV_RESERVE_OBJECTIVE_CODE', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='TREE_COVER_PATTERN_CODE', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='TREE_COVER_PATTERN_CODE', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='STOCKING_STANDARD_UNIT', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='STOCKING_TYPE_CODE', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='STOCKING_TYPE_CODE', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='FOREST_COVER', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='FOREST_COVER', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='FOREST_COVER_LAYER_CODE', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='FOREST_COVER_LAYER_CODE', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='FOREST_COVER_LAYER', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='FOREST_COVER_LAYER', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='SILV_DAMAGE_AGENT_CODE', object_schema='THE'),
+    Dependency(object_type=<ObjectType.TABLE: 1>, object_name='SILV_DAMAGE_AGENT_CODE', object_schema='THE')]

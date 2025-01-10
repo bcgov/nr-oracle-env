@@ -13,6 +13,33 @@ from . import types
 LOGGER = logging.getLogger(__name__)
 
 
+class DDLCache:
+    # Caches the DDL, and organizes by types to ensure that the
+    # order of object creation is correct
+    def __init__(self, ora_obj: "Oracle") -> None:
+        self.ora_obj = ora_obj
+        self.ddl_cache = []
+        # triggers are created last
+        self.triggers = []
+
+    def add_ddl(
+        self,
+        db_object_type: types.ObjectType,
+        ddl: list[str],
+    ) -> None:
+        if db_object_type == types.ObjectType.TRIGGER:
+            self.triggers.extend(ddl)
+        else:
+            self.ddl_cache.extend(ddl)
+
+    def get_ddl(self) -> list[str]:
+        return self.ddl_cache + self.triggers
+
+    def merge_caches(self, ddl_cache: "DDLCache") -> None:
+        self.ddl_cache.extend(ddl_cache.ddl_cache)
+        self.triggers.extend(ddl_cache.triggers)
+
+
 class Oracle:
     """
     Communication with oracle database.
@@ -236,7 +263,7 @@ class Oracle:
     def create_migrations(
         self,
         relationships: types.DBDependencyMapping,
-    ) -> list[str]:
+    ) -> DDLCache:
         """
         Create database migrations for the input relationships.
 
@@ -248,6 +275,7 @@ class Oracle:
         :type relationships: types.ObjectStoreParameters
         """
         migration_code = []
+        ddl_cache = DDLCache(ora_obj=self)
         for relation in relationships.dependency_list:
             dependency_obj = typing.cast(types.Dependency, relation)
             # no dependencies and not already exported
@@ -259,8 +287,12 @@ class Oracle:
                 object_ddls = self.get_ddl(
                     dependency_obj,
                 )
-                for object_ddl in object_ddls:
-                    migration_code.append(object_ddl + "\n")
+                ddl_cache.add_ddl(
+                    db_object_type=dependency_obj.object_type,
+                    ddl=object_ddls,
+                )
+                # for object_ddl in object_ddls:
+                #     migration_code.append(object_ddl + "\n")
                 LOGGER.debug("DDL: TABLE: %s", relation.object_name)
             # dependencies and not already exported
             elif not self.exported_objects.exists(
@@ -269,13 +301,20 @@ class Oracle:
                 # first call itself to ensure the migrations have been
                 # created that need to take place first.
                 self.exported_objects.add_object(dependency_obj)
-                migration_code = migration_code + self.create_migrations(
-                    relationships=relation,
+                ddl_cache.merge_caches(
+                    self.create_migrations(
+                        relationships=relation,
+                    )
                 )
+                # migration_code = migration_code + self.create_migrations(
+                #     relationships=relation,
+                # )
                 LOGGER.debug("DDL: TABLE: %s", relation.object_name)
                 object_ddls = self.get_ddl(dependency_obj)
-                for object_ddl in object_ddls:
-                    migration_code.append(object_ddl + "\n")
+                ddl_cache.add_ddl(
+                    db_object_type=dependency_obj.object_type,
+                    ddl=object_ddls,
+                )
 
         dependency_obj = typing.cast(types.Dependency, relationships)
         if not self.exported_objects.exists(
@@ -292,9 +331,11 @@ class Oracle:
             #     object_schema=relationships.object_schema,
             # )
             object_ddls = self.get_ddl(dependency_obj)
-            for object_ddl in object_ddls:
-                migration_code.append(object_ddl + "\n")
-        return migration_code
+            ddl_cache.add_ddl(
+                db_object_type=dependency_obj.object_type,
+                ddl=object_ddls,
+            )
+        return ddl_cache
 
     def get_ddl(
         self,
@@ -350,7 +391,7 @@ class Oracle:
             object_schema=db_object.object_schema.upper(),
         )
         ddl_result_cell = cursor.fetchone()
-        ddl_str = ddl_result_cell[0].read()
+        ddl_str = ddl_result_cell[0].read() + "\n"
         LOGGER.debug("ddl for %s is %s", db_object.object_name, ddl_str)
         cursor.close()
         return [ddl_str]
@@ -471,59 +512,6 @@ class Oracle:
                 )
                 dependencies.append(trigger_dep)
         return dependencies
-
-
-class ExportTables:
-    """
-    Used to keep track of what tables have been added to a migration file.
-
-    This is used to prevent duplicate migrations from being created, which would
-    create an error when the migrations are run.
-    """
-
-    def __init__(self) -> None:
-        """
-        Class constructor.
-        """
-        self.exported_tables = []
-
-    def add_table(self, table_name: str, schema: str) -> None:
-        """
-        Add table to the exported tables list.
-
-        :param table_name: input table name
-        :type table_name:
-        :param schema: Input schema name
-        :type schema: str
-        """
-        self.exported_tables.append(f"{schema.upper()}.{table_name.upper()}")
-
-    def add_tables(self, tables: list[types.Table]) -> None:
-        """
-        Add list of tables to the exported tables list.
-
-        :param tables: list of table to add to the exported tables list, that
-            is used to keep track of table that have already been exported.
-        :type tables: list[types.Table]
-        """
-        for table_struct in tables:
-            self.add_table(
-                table_name=table_struct.table_name, schema=table_struct.schema
-            )
-
-    def exists(self, table_name: str, schema: str) -> bool:
-        """
-        Check if table exists in the exported tables list.
-
-        :param table_name: _description_
-        :type table_name: str
-        :param schema: _description_
-        :type schema: str
-        :return: _description_
-        :rtype: bool
-        """
-        return f"{schema.upper()}.{table_name.upper()}" in self.exported_tables
-        return f"{schema.upper()}.{table_name.upper()}" in self.exported_tables
 
 
 class ExportedObjects:

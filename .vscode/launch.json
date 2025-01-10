@@ -47,7 +47,7 @@
             "args": [
                 "create-migrations",
                 "--seed-table",
-                "SEEDLOT_AUDIT"
+                "SEEDLOT"
             ]
         },
         {

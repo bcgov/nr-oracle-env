@@ -8,6 +8,7 @@ import pathlib
 import packaging.version
 import sql_metadata
 import sqlparse
+import sqlparse.sql
 
 from . import types
 
@@ -20,12 +21,19 @@ class MigrationFile:
         self,
         version: packaging.version.Version,
         description: str,
-        migration_folder: pathlib.Path,
+        migration_folder_str: pathlib.Path,
     ):
         self.version = version
         self.description = description
-        self.migration_folder = migration_folder
+        # if the provided migration folder is a relative folder then
+        # make it relative to this file
 
+        self.migration_folder = pathlib.Path(migration_folder_str)
+        if not self.migration_folder.is_absolute():
+            self.migration_folder = (
+                pathlib.Path(__file__).parent / ".." / migration_folder_str
+            ).resolve()
+            LOGGER.debug("migration_folder is not absolute: %s", self.migration_folder)
         self.migration_folder.mkdir(parents=True, exist_ok=True)
         LOGGER.debug("created folder: %s", self.migration_folder)
 
@@ -115,48 +123,66 @@ class MigrationFileParser:
             parsed = sqlparse.parse(statement)
             statement_obj = sqlparse.sql.Statement(parsed[0].tokens)
             statement_type = statement_obj.get_type()
+
+            is_valid_object = False
+
             ids = sqlparse.sql.Identifier(parsed[0].tokens)
             is_table = False
             for id in ids:
-                # if id.is_keyword and id.value == "TABLE":
+                LOGGER.debug("id: %s %s", id, type(id))
+                # if id.is_keyword and id.value == "TABLE": # unique shows as ttype=Token.Keyword
                 if id.is_keyword and id.value in types.ObjectType.__members__:
                     is_valid_object = True
                     object_type = types.ObjectType[id.value]
                     break
+                # elif isinstance(ids.tokens[0], sqlparse.sql.Comment):
+                #     is_valid_object = False
+                #     break
 
-            search_stack_ttypes = [
-                [sqlparse.tokens.Keyword.DDL, "ddl_keyword", "value"],
-                [sqlparse.tokens.Keyword, "object_type", "value"],
-                [None, "object_name", "normalized"],
-            ]
-            cur_idx = 0
-            data_dict = {}
-            for token in parsed[0].tokens:
-                LOGGER.debug("token: %s", token)
-                LOGGER.debug("token.ttype: %s", token.ttype)
-                if token.ttype == search_stack_ttypes[cur_idx][0]:
-                    LOGGER.debug("DDL token: %s", token)
-                    data_dict[search_stack_ttypes[cur_idx][1]] = getattr(
-                        token, search_stack_ttypes[cur_idx][2]
+            if is_valid_object:
+                search_stack_ttypes = [
+                    [sqlparse.tokens.Keyword.DDL, "ddl_keyword", "value"],
+                    [sqlparse.tokens.Keyword, "object_type", "value"],
+                    [None, "object_name", "normalized"],
+                ]
+                cur_idx = 0
+                data_dict = {}
+                for token in parsed[0].tokens:
+                    LOGGER.debug("token: %s", token)
+                    LOGGER.debug("token.ttype: %s", token.ttype)
+                    if token.ttype == search_stack_ttypes[cur_idx][0]:
+                        LOGGER.debug("DDL token: %s", token)
+                        data_dict[search_stack_ttypes[cur_idx][1]] = getattr(
+                            token, search_stack_ttypes[cur_idx][2]
+                        )
+                        cur_idx += 1
+                    if cur_idx >= len(search_stack_ttypes):
+                        break
+                    LOGGER.debug("token ttype type: %s", type(token.ttype))
+                    LOGGER.debug("token.value: %s", token.value)
+                    LOGGER.debug("token type: %s", type(token))
+                    # if token.ttype == search_stack_ttypes[cur_idx][0]:
+                # get rid of unnecessary quotes
+                data_dict["object_name"] = data_dict["object_name"].replace('"', "")
+                LOGGER.debug("object name: %s", data_dict["object_name"])
+                if "." in data_dict["object_name"]:
+                    schema, object_name = data_dict["object_name"].split(".")
+                else:
+                    schema = None
+                    object_name = data_dict["object_name"]
+                    LOGGER.warning(
+                        "no schema found for object %s in the file: %s",
+                        object_name,
+                        self.migration_file,
                     )
-                    cur_idx += 1
-                if cur_idx >= len(search_stack_ttypes):
-                    break
-                LOGGER.debug("token ttype type: %s", type(token.ttype))
-                LOGGER.debug("token.value: %s", token.value)
-                LOGGER.debug("token type: %s", type(token))
-                # if token.ttype == search_stack_ttypes[cur_idx][0]:
-            # get rid of unnecessary quotes
-            data_dict["object_name"] = data_dict["object_name"].replace('"', "")
-            schema, object_name = data_dict["object_name"].split(".")
-            # only write objects that are defined
-            if data_dict["object_type"] in types.ObjectType.__members__:
-                object_def = types.DbObject(
-                    object_name=object_name,
-                    object_schema=schema,
-                    object_type=types.ObjectType[data_dict["object_type"]],
-                )
-                db_objects.append(object_def)
+                # only write objects that are defined
+                if data_dict["object_type"] in types.ObjectType.__members__:
+                    object_def = types.DbObject(
+                        object_name=object_name,
+                        object_schema=schema,
+                        object_type=types.ObjectType[data_dict["object_type"]],
+                    )
+                    db_objects.append(object_def)
         return db_objects
 
     def get_tables(self) -> list[types.Table]:

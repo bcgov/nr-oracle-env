@@ -173,3 +173,6 @@ cython_debug/
 data/**
 docs_from_andrew/localdbp01.sh
 junk/**
+data-query-tool/data/junk/**
+data-query-tool/data/migrations/**
+junk.json
