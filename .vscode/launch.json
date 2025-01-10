@@ -38,7 +38,7 @@
             ]
         },
         {
-            "name": "main_script",
+            "name": "main_create_migrations",
             "type": "debugpy",
             "redirectOutput": false ,
             "request": "launch",
@@ -46,6 +46,19 @@
             "console": "integratedTerminal",
             "args": [
                 "create-migrations",
+                "--seed-table",
+                "SEEDLOT_AUDIT"
+            ]
+        },
+        {
+            "name": "main_get_dependencies",
+            "type": "debugpy",
+            "redirectOutput": false ,
+            "request": "launch",
+            "program": "data-query-tool/main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "show-deps",
                 "--seed-table",
                 "SEEDLOT"
             ]
