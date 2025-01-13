@@ -16,13 +16,35 @@ LOGGER = logging.getLogger(__name__)
 
 
 class MigrationFile:
+    """
+    Provide utility methods for migration file names.
+    """
 
     def __init__(
         self,
         version: packaging.version.Version,
         description: str,
         migration_folder_str: pathlib.Path,
-    ):
+    ) -> None:
+        """
+        Initialize the migration file.
+
+        Checks to make sure there is not already a migration file with this
+        name, increments the version number for the migration file so that it
+        is the next migration to be run, if existing migrations already exist.
+
+        :param version: If there is a specific version id to use for the
+            migration file that will be created by this migration.
+        :type version: packaging.version.Version
+        :param description: A description string for the migration, this is
+            used in the name of the migration file.
+        :type description: str
+        :param migration_folder_str: The folder where the migration file should
+            be created.  This parameter is also used to scan existing migrations
+            to ensure that newly created migrations do not attempt to create
+            existing objects.
+        :type migration_folder_str: pathlib.Path
+        """
         self.version = version
         self.description = description
         # if the provided migration folder is a relative folder then
@@ -33,7 +55,10 @@ class MigrationFile:
             self.migration_folder = (
                 pathlib.Path(__file__).parent / ".." / migration_folder_str
             ).resolve()
-            LOGGER.debug("migration_folder is not absolute: %s", self.migration_folder)
+            LOGGER.debug(
+                "migration_folder is not absolute: %s",
+                self.migration_folder,
+            )
         self.migration_folder.mkdir(parents=True, exist_ok=True)
         LOGGER.debug("created folder: %s", self.migration_folder)
 
@@ -48,7 +73,9 @@ class MigrationFile:
         :type migration_version: packaging.version.Version
         """
         version = self.get_latest_migration_file_version()
-        migration_file_name = "V" + str(version) + "__" + self.description + ".sql"
+        migration_file_name = (
+            "V" + str(version) + "__" + self.description + ".sql"
+        )
         migration_file = self.migration_folder / migration_file_name
         if migration_file.exists():
             LOGGER.warning("migration file already exists: %s", migration_file)
@@ -66,25 +93,50 @@ class MigrationFile:
         migration_files = self.get_existing_migration_files()
         if migration_files:
             current_migration_file = migration_files[-1]
-            current_migration_version = current_migration_file.stem.split("__")[0][1:]
-            current_version = packaging.version.Version(current_migration_version)
+            current_migration_version = current_migration_file.stem.split("__")[
+                0
+            ][1:]
+            current_version = packaging.version.Version(
+                current_migration_version,
+            )
             latest_migration_version = self.increment_version(current_version)
+            LOGGER.debug(
+                "latest_migration_version: %s",
+                latest_migration_version,
+            )
             return latest_migration_version
-        else:
-            return self.version
+
+        return self.version
 
     def increment_version(
-        self, version: packaging.version.Version
+        self,
+        version: packaging.version.Version,
     ) -> packaging.version.Version:
         """
         Increment the version number of the migration file.
         """
         version_parts = list(version.release)
         version_parts[-1] += 1
-        new_version = packaging.version.Version(".".join(map(str, version_parts)))
+        new_version = packaging.version.Version(
+            ".".join(map(str, version_parts)),
+        )
+        LOGGER.debug(
+            "new version: %s",
+            new_version,
+        )
         return new_version
 
     def write_migrations(self, migration_list: list[str]) -> None:
+        """
+        Write the migrations to the migration file.
+
+        Recieves a list of migrations statements, and writes them to the
+        migration file.
+
+        :param migration_list: list of statements that should be executed as
+            part of the migration.
+        :type migration_list: list[str]
+        """
         # only write migrations if you have something to actually write
         LOGGER.debug("migration_list: %s", migration_list)
         if migration_list:
@@ -107,12 +159,33 @@ class MigrationFile:
 
 
 class MigrationFileParser:
+    """
+    Parse a migration file to extract the object names.
 
-    def __init__(self, migration_file: pathlib.Path):
+    The migration file is parsed to extract the object names that are created
+    by a migration file.  This is used to ensure that existing objects do not
+    occur in subsequent migrations.
+    """
+
+    def __init__(self, migration_file: pathlib.Path) -> None:
+        """
+        Initialize the migration file parser.
+
+        :param migration_file: the path to the migration file.
+        :type migration_file: pathlib.Path
+        """
         self.migration_file = migration_file
 
     def get_dependency(self) -> list[types.Dependency]:
+        """
+        Get the dependencies of the migration file.
 
+        Get the object names and types that are created by the migration file.
+
+        :return: a list of Dependency objects that describe the object names
+                and types that are created by the migration file.
+        :rtype: list[types.Dependency]
+        """
         db_objects = []
 
         with self.migration_file.open("r") as fh:
@@ -121,24 +194,27 @@ class MigrationFileParser:
 
         for statement in statements:
             parsed = sqlparse.parse(statement)
-            statement_obj = sqlparse.sql.Statement(parsed[0].tokens)
-            statement_type = statement_obj.get_type()
+
+            # leaving this code here for now as it helps me understand the
+            # sqlparse library...
+            # statement_obj = \  # noqa: ERA001, RUF100
+            #     sqlparse.sql.Statement(parsed[0].tokens)  # noqa: ERA001
+            # statement_type = statement_obj.get_type()  # noqa: ERA001
 
             is_valid_object = False
 
             ids = sqlparse.sql.Identifier(parsed[0].tokens)
-            is_table = False
-            for id in ids:
-                LOGGER.debug("id: %s %s", id, type(id))
-                # if id.is_keyword and id.value == "TABLE": # unique shows as ttype=Token.Keyword
-                if id.is_keyword and id.value in types.ObjectType.__members__:
+            is_table = False  # noqa: F841
+            for parse_id in ids:
+                LOGGER.debug("id: %s %s", parse_id, type(parse_id))
+                # if id.is_keyword and id.value == "TABLE": # unique shows as ttype=Token.Keyword  # noqa: E501
+                if (
+                    parse_id.is_keyword
+                    and parse_id.value in types.ObjectType.__members__
+                ):
                     is_valid_object = True
-                    object_type = types.ObjectType[id.value]
+                    object_type = types.ObjectType[parse_id.value]  # noqa: F841
                     break
-                # elif isinstance(ids.tokens[0], sqlparse.sql.Comment):
-                #     is_valid_object = False
-                #     break
-
             if is_valid_object:
                 search_stack_ttypes = [
                     [sqlparse.tokens.Keyword.DDL, "ddl_keyword", "value"],
@@ -153,7 +229,8 @@ class MigrationFileParser:
                     if token.ttype == search_stack_ttypes[cur_idx][0]:
                         LOGGER.debug("DDL token: %s", token)
                         data_dict[search_stack_ttypes[cur_idx][1]] = getattr(
-                            token, search_stack_ttypes[cur_idx][2]
+                            token,
+                            search_stack_ttypes[cur_idx][2],
                         )
                         cur_idx += 1
                     if cur_idx >= len(search_stack_ttypes):
@@ -163,7 +240,10 @@ class MigrationFileParser:
                     LOGGER.debug("token type: %s", type(token))
                     # if token.ttype == search_stack_ttypes[cur_idx][0]:
                 # get rid of unnecessary quotes
-                data_dict["object_name"] = data_dict["object_name"].replace('"', "")
+                data_dict["object_name"] = data_dict["object_name"].replace(
+                    '"',
+                    "",
+                )
                 LOGGER.debug("object name: %s", data_dict["object_name"])
                 if "." in data_dict["object_name"]:
                     schema, object_name = data_dict["object_name"].split(".")
@@ -193,7 +273,8 @@ class MigrationFileParser:
         and the type of object is a 'TABLE'. If so, the table name is extracted
         from the query.
 
-        :return: a list of the tables that will be created by the migration file.
+        :return: a list of the tables that will be created by the migration
+            file.
         :rtype: list[str]
         """
         tables = []
@@ -207,27 +288,20 @@ class MigrationFileParser:
             statement_type = statement_obj.get_type()
             ids = sqlparse.sql.Identifier(parsed[0].tokens)
             is_table = False
-            for id in ids:
-                if id.is_keyword and id.value == "TABLE":
+            for parse_id in ids:
+                if parse_id.is_keyword and parse_id.value == "TABLE":
                     is_table = True
                     break
-                    # tables = sql_metadata.Parser(statement).tables
-                    # print(tables)
+                    # tables = sql_metadata.Parser(statement).tables  # noqa: ERA001, E501
+                    # print(tables)  # noqa: ERA001
             if statement_type == "CREATE" and is_table:
                 statement_tables = sql_metadata.Parser(statement).tables
                 for statement_table in statement_tables:
-                    statement_table = statement_table.split(".")
+                    statement_table_list = statement_table.split(".")
                     table_def = types.Table(
-                        table_name=statement_table[1], schema=statement_table[0]
+                        table_name=statement_table_list[1],
+                        schema=statement_table_list[0],
                     )
                     tables.append(table_def)
 
         return tables
-
-
-if __name__ == "__main__":
-    migration_path_str = "/home/kjnether/fsa_proj/nr-fsa-orastruct/data-query-tool/data/migrations/V1.0.0__first_migration.sql"
-    migration_file = pathlib.Path(migration_path_str)
-
-    migration = MigrationFileParser(migration_file)
-    migration.get_tables()

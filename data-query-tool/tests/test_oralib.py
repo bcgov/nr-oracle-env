@@ -23,15 +23,21 @@ def test_get_triggers(ora_lib_fixture):
     ora = ora_lib_fixture
     LOGGER.debug("got here")
     LOGGER.debug("ora: %s", ora)
-    results = ora_lib_fixture.get_triggers(schema="THE", table_name="SEEDLOT")
+    results = ora_lib_fixture.get_triggers(
+        schema="THE", table_name="SEEDLOT", include_disabled=False
+    )
     LOGGER.debug("results: %s", results)
     assert results
     assert "SPR_SEEDLOT_AR_IUD_TRG" in results
-    results = ora_lib_fixture.get_triggers(schema="THE", table_name="SEEDLOT_AUDIT")
+    results = ora_lib_fixture.get_triggers(
+        schema="THE", table_name="SEEDLOT_AUDIT", include_disabled=False
+    )
     LOGGER.debug("seedlot audit results: %s", results)
 
 
 def test_get_trigger_deps(ora_lib_fixture):
     ora = ora_lib_fixture
-    results = ora_lib_fixture.get_trigger_deps(schema="THE", table_name="SEEDLOT")
+    results = ora_lib_fixture.get_trigger_deps(
+        schema="THE", table_name="SEEDLOT", include_disabled=False
+    )
     LOGGER.debug("dependencies: %s", results)

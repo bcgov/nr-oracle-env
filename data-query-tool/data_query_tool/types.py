@@ -1,3 +1,10 @@
+"""
+Define data types used in the data query tool.
+
+This module defines the data types used in the data query tool.
+
+"""
+
 from __future__ import annotations
 
 import logging
@@ -37,7 +44,7 @@ class Table:
 @dataclass
 class Dependency:
     """
-    Dependency class
+    Dependency class.
     """
 
     object_type: ObjectType
@@ -119,30 +126,51 @@ class DBDependencyMapping(Dependency):
     Data class for table dependencies.
 
     This is a hierarchical/recursive data structure
-
-
     """
 
     dependency_list: list[DBDependencyMapping | None]
 
-    def to_dict(self):
-        LOGGER.debug("got here with %s", self)
-        deps_list = []
-        for dependency in self.dependency_list:
-            deps_list.append(dependency.to_dict())
+    def to_dict(self) -> dict:
+        """
+        Convert the data structure to a dictionary.
+
+        :return: A dictionary representation of the data structure.
+        :rtype: dict
+        """
+        deps_list = [
+            dependency.to_dict() for dependency in self.dependency_list
+        ]
         db_dep_dict = {
             "object_type": self.object_type.name,
             "object_name": self.object_name,
             "object_schema": self.object_schema,
             "dependency_list": deps_list,
         }
+        LOGGER.debug("db_dep_dict: %s", db_dep_dict)
         return db_dep_dict
 
-    def as_dict(self):
+    def as_dict(self) -> dict:
+        """
+        Alias to to_dict.
+
+        :return: a dictionary representation of the data structure.
+        :rtype: dict
+        """
         return self.to_dict()
 
     def to_str(self, indent: int = 0) -> str:
-        out_str = f"{self.object_type.name}: {self.object_schema}.{self.object_name}"
+        """
+        Render the data structure as a string.
+
+        :param indent: the number of spaces to indent the output. Used to
+            create a hierarchical representation of the data structure.
+        :type indent: int, optional
+        :return: a human readable representation of the dependency tree.
+        :rtype: str
+        """
+        out_str = (
+            f"{self.object_type.name}: {self.object_schema}.{self.object_name}"
+        )
         dep_str = "\n" + (" " * indent) + "--------- dependencies ---------\n"
         indent = indent + 4
         deps_list = []

@@ -1,3 +1,9 @@
+"""
+Tests for the migration_files module.
+
+Nowhere near a reasonable code coverage, mostly used to support development.
+"""
+
 import logging
 import pathlib
 import shutil
@@ -29,6 +35,7 @@ def test_get_dependency(simple_migration_file):
 def test_get_dependencies_w_mult_idx(migration_file_w_multiple_idx):
     mg_file = migration_files.MigrationFileParser(migration_file_w_multiple_idx)
     deps = mg_file.get_dependency()
+    LOGGER.info("deps: %s", deps)
 
 
 def test_get_dependencies_w_sequence(migration_file_w_trigger):
