@@ -25,7 +25,7 @@ x-oracle-vars: &oracle-vars
   APP_USER: *ORA_USER
   APP_USER_PASSWORD: *ORA_PASSWORD
 
-x-oracle-vars: &oracle-vars-test
+x-oracle-vars-test: &oracle-vars-test
   ORACLE_DATABASE: *ORA_DATABASE_TEST
   ORACLE_PASSWORD: *ORA_PASSWORD
   ORACLE_HOST: *ORA_HOST_TEST
