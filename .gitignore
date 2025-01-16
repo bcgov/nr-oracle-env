@@ -176,3 +176,4 @@ junk/**
 data-query-tool/data/junk/**
 data-query-tool/data/migrations/**
 junk.json
+data-query-tool/data/**
