@@ -60,7 +60,7 @@
             "args": [
                 "show-deps",
                 "--seed-table",
-                "SEEDLOT"
+                "SMP_MIX_GEN_QLTY"
             ]
         },
 
