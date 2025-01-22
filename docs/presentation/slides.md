@@ -170,7 +170,6 @@ h4 {
 
 <br>
 
-<!-- <img src="./pre-fds.drawio.svg"> -->
 ![w:700 center](./pre-fds.drawio.svg)
 
 <br>
@@ -210,12 +209,12 @@ h4 {
 
 # Discussion / Feedback
 
-<!-- <img src="https://lymansblog.wordpress.com/wp-content/uploads/2014/10/create-shareable-content.jpg" width="400px"> -->
-
 ![w:300 center](https://lymansblog.wordpress.com/wp-content/uploads/2014/10/create-shareable-content.jpg)
 
 
 - Is any of this useful?
 - Is there value in making it easier to use?
 - Any feedback Welcome!
+
+
 

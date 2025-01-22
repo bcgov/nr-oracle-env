@@ -148,6 +148,7 @@ class Oracle:
         table_name: str,
         schema: str,
         existing: list[tuple[str, str]] | None = None,
+        depth: int = 0,
     ) -> types.DBDependencyMapping:
         """
         Return a hierarchical data structure with table dependencies.
@@ -184,6 +185,7 @@ class Oracle:
         :return: _description_
         :rtype: types.DBDependencyMapping
         """
+        depth += 1
         if not existing:
             existing = []
         self.connect_sa()
@@ -212,12 +214,26 @@ class Oracle:
             related_table = table_schema[1]
             related_schema = table_schema[0]
             LOGGER.debug("related table: %s", related_table)
-            if (related_schema, related_table) not in existing:
+            if (
+                related_table.lower() == table_name.lower()
+                and related_schema.lower() == schema.lower()
+            ):
+                related_struct.append(
+                    types.DBDependencyMapping(
+                        object_name=table_name,
+                        object_schema=schema,
+                        object_type=types.ObjectType.TABLE,
+                        dependency_list=[],
+                    )
+                )
+
+            elif (related_schema, related_table) not in existing:
                 related_struct.append(
                     self.get_related_tables_sa(
                         table_name=related_table,
                         schema=related_schema,
                         existing=existing,
+                        depth=depth,
                     ),
                 )
                 related_struct.extend(
