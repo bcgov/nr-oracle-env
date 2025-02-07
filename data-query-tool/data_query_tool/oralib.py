@@ -539,7 +539,8 @@ class Oracle:
                         owner=:schema AND
                         (TYPE != 'TRIGGER' OR REFERENCED_OWNER != 'SYS') AND
                         (REFERENCED_NAME!=:table_name OR
-                         REFERENCED_TYPE != 'TABLE')
+                         REFERENCED_TYPE != 'TABLE') AND  NOT
+                         ( REFERENCED_OWNER = 'PUBLIC' AND REFERENCED_NAME = 'DUAL' AND REFERENCED_TYPE = 'SYNONYM' )
                 """
                 cursor = self.connection.cursor()
                 cursor.execute(

@@ -60,7 +60,9 @@
             "args": [
                 "show-deps",
                 "--seed-table",
-                "SMP_MIX_GEN_QLTY"
+                "CNS_T_RQST_ITM_ACTVTY",
+                "--schema",
+                "CONSEP"
             ]
         },
 
