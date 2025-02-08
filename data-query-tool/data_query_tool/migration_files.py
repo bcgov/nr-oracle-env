@@ -4,6 +4,7 @@ Create migration files.
 
 import logging
 import pathlib
+import re
 
 import packaging.version
 import sql_metadata
@@ -91,20 +92,15 @@ class MigrationFile:
         Return the latest migration file version.
         """
         migration_files = self.get_existing_migration_files()
+
         if migration_files:
-            current_migration_file = migration_files[-1]
-            current_migration_version = current_migration_file.stem.split("__")[
-                0
-            ][1:]
-            current_version = packaging.version.Version(
-                current_migration_version,
-            )
-            latest_migration_version = self.increment_version(current_version)
+            next_version = self.get_next_version_file(migration_files)
+
             LOGGER.debug(
                 "latest_migration_version: %s",
-                latest_migration_version,
+                next_version,
             )
-            return latest_migration_version
+            return next_version
 
         return self.version
 
@@ -156,6 +152,42 @@ class MigrationFile:
         migration_files = list(self.migration_folder.glob("*.sql"))
         migration_files.sort()
         return migration_files
+
+    def get_next_version_file(
+        self, migration_files: list[pathlib.Path]
+    ) -> packaging.version.Version:
+        """
+        Return a file name that contains the next version number.
+
+        Gets a list of files, looks through them for files that comply with the
+        flyway versioning scheme, and returns the next version number that
+        should be used if creating a new migration file.
+
+        :return: The next version number that doesn't exist in the provided list
+            of files
+        :rtype: packaging.version.Version
+        """
+        version_file_ptrn = re.compile(r"^V(\d+(?:\.\d+)*)__")
+
+        max_version = self.version
+        for migration_file in migration_files:
+            just_name = migration_file.name
+            # is it a flyway version file
+            if version_file_ptrn.match(migration_file.name):
+                migration_version = migration_file.stem.split("__")[0][1:]
+                migration_version = packaging.version.Version(migration_version)
+                LOGGER.debug("migration_version: %s", migration_version)
+            if migration_version > max_version:
+                max_version = migration_version
+        next_version_str = (
+            f"{max_version.major}.{max_version.minor}.{max_version.micro + 1}"
+        )
+        next_version = packaging.version.Version(next_version_str)
+        LOGGER.debug(
+            "next version is: %s",
+            next_version,
+        )
+        return next_version
 
 
 class MigrationFileParser:

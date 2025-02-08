@@ -8,6 +8,7 @@ import logging
 import pathlib
 import shutil
 
+import packaging.version
 from data_query_tool import migration_files, types
 
 LOGGER = logging.getLogger(__name__)
@@ -65,3 +66,41 @@ def test_init_migration_folder():
     # cleanup the remnants of the test
     shutil.rmtree(migration.migration_folder)
     shutil.rmtree(migration.migration_folder.parent)
+
+
+def test_init_migration_folder():
+    test_folder = pathlib.Path(__file__).parent / "test_migration_folder"
+    test_folder.mkdir(parents=True, exist_ok=True)
+    for i in range(1, 15):
+        file_name = f"V1.0.{i}__dummy_migration.sql"
+        pathlib.Path(test_folder / file_name).touch()
+
+    migration = migration_files.MigrationFile(
+        version="1.0.0",
+        description="test_migration",
+        migration_folder_str=test_folder,
+    )
+    new_file = migration.get_migration_file()
+    assert new_file.name == "V1.0.15__test_migration.sql"
+    LOGGER.debug("new_file: %s", new_file)
+
+    shutil.rmtree(test_folder)
+
+
+def test_get_next_version_file():
+    test_folder = pathlib.Path(__file__).parent / "test_migration_folder"
+
+    file_names = []
+    for i in range(1, 15):
+        file_name = f"V1.0.{i}__dummy_migration.sql"
+        file_names.append(pathlib.Path(file_name))
+
+    migration = migration_files.MigrationFile(
+        version="1.0.0",
+        description="test_migration",
+        migration_folder_str=test_folder,
+    )
+
+    next_version = migration.get_next_version_file(file_names)
+    LOGGER.debug("next_version: %s", next_version)
+    assert next_version == packaging.version.Version("1.0.15")

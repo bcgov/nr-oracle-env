@@ -29,6 +29,7 @@ class ObjectType(Enum):
     PROCEDURE = 4
     FUNCTION = 5
     SEQUENCE = 6
+    PACKAGE = 7
 
 
 @dataclass
