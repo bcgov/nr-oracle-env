@@ -66,7 +66,7 @@
             ]
         },
         {
-            "name": "main_silv_debug",
+            "name": "main_silv_debug_mk_mg",
             "type": "debugpy",
             "redirectOutput": false ,
             "request": "launch",
@@ -79,9 +79,25 @@
                 "--schema",
                 "THE",
                 "--migration-folder",
-                "/home/kjnether/fsa_proj/nr-silva/local_ora/migrations/sql"
+                "/home/kjnether/fsa_proj/nr-fsa-orastruct/data-query-tool/data/migrations_tmp"
             ]
         },
+        {
+            "name": "main_silv_debug_showdep",
+            "type": "debugpy",
+            "redirectOutput": false ,
+            "request": "launch",
+            "program": "data-query-tool/main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "show-deps",
+                "--seed-table",
+                "CUT_BLOCK_OPEN_ADMIN",
+                "--schema",
+                "THE",
+            ]
+        },
+
 
     ]
 }

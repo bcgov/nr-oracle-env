@@ -76,12 +76,13 @@ def test_init_migration_folder():
         pathlib.Path(test_folder / file_name).touch()
 
     migration = migration_files.MigrationFile(
-        version="1.0.0",
+        version=packaging.version.Version("1.0.0"),
         description="test_migration",
         migration_folder_str=test_folder,
     )
     new_file = migration.get_migration_file()
-    assert new_file.name == "V1.0.15__test_migration.sql"
+    LOGGER.debug("new_file: %s", new_file)
+    assert new_file.name == "V1.1.0__test_migration.sql"
     LOGGER.debug("new_file: %s", new_file)
 
     shutil.rmtree(test_folder)
@@ -96,11 +97,131 @@ def test_get_next_version_file():
         file_names.append(pathlib.Path(file_name))
 
     migration = migration_files.MigrationFile(
-        version="1.0.0",
+        version=packaging.version.Version("1.0.0"),
         description="test_migration",
         migration_folder_str=test_folder,
     )
 
     next_version = migration.get_next_version_file(file_names)
     LOGGER.debug("next_version: %s", next_version)
-    assert next_version == packaging.version.Version("1.0.15")
+    assert next_version == packaging.version.Version("1.1.0")
+
+
+def test_get_migration_type(
+    migration_file_triggers, migration_file_w_multiple_idx
+):
+    mg_file = migration_files.MigrationFileParser(migration_file_triggers)
+    mg_type = mg_file.get_migration_type()
+    assert mg_type == types.DDLType.TRIGGER
+
+    mg_file = migration_files.MigrationFileParser(migration_file_w_multiple_idx)
+    mg_type = mg_file.get_migration_type()
+    assert mg_type == types.DDLType.DB_OBJ_DDL
+
+
+def test_get_dependency_triggers(migration_file_triggers):
+    mg_file = migration_files.MigrationFileParser(migration_file_triggers)
+    mg_type = mg_file.get_migration_type()
+    assert mg_type == types.DDLType.TRIGGER
+    deps = mg_file.get_dependency()
+
+    LOGGER.debug("deps: %s", deps)
+
+    assert len(deps) == 3
+    expect_dep1 = types.Dependency(
+        object_name="RESULTS_CBOA_AR_IUD_TRG",
+        object_type=types.ObjectType.TRIGGER,
+        object_schema="THE",
+    )
+    expect_dep2 = types.Dependency(
+        object_name="FTA_CPFILL_CBOA",
+        object_type=types.ObjectType.TRIGGER,
+        object_schema="THE",
+    )
+    expect_dep3 = types.Dependency(
+        object_name="RESULTS_JUNK_TRIG",
+        object_type=types.ObjectType.TRIGGER,
+        object_schema="THE",
+    )
+
+    not_in = types.Dependency(
+        object_name="DUMMY",
+        object_type=types.ObjectType.TRIGGER,
+        object_schema="THE",
+    )
+    assert expect_dep1 in deps
+    assert expect_dep2 in deps
+    assert expect_dep3 in deps
+    assert not_in not in deps
+
+
+def test_get_dependency_packages(migration_file_packages):
+    mg_file = migration_files.MigrationFileParser(migration_file_packages)
+    mg_type = mg_file.get_migration_type()
+    assert mg_type == types.DDLType.PACKAGE
+    deps = mg_file.get_dependency()
+    LOGGER.debug("deps: %s", deps)
+
+    assert len(deps) == 5
+
+    expect_dep1 = types.Dependency(
+        object_name="RESULTS_OPENING",
+        object_type=types.ObjectType.PACKAGE,
+        object_schema="THE",
+    )
+    expect_dep2 = types.Dependency(
+        object_name="RESULTS_AUDIT",
+        object_type=types.ObjectType.PACKAGE,
+        object_schema="THE",
+    )
+    expect_dep3 = types.Dependency(
+        object_name="RESULTS_GLOBALS",
+        object_type=types.ObjectType.PACKAGE,
+        object_schema="THE",
+    )
+    expect_dep4 = types.Dependency(
+        object_name="PKG_SIL_DATE_CONVERSION",
+        object_type=types.ObjectType.PACKAGE,
+        object_schema="THE",
+    )
+    expect_dep5 = types.Dependency(
+        object_name="SIL_DATE_CONVERSION",
+        object_type=types.ObjectType.PACKAGE,
+        object_schema="THE",
+    )
+    not_in = types.Dependency(
+        object_name="SIL_DATE_CONVERSION2",
+        object_type=types.ObjectType.PACKAGE,
+        object_schema="THE",
+    )
+    not_in2 = types.Dependency(
+        object_name="SIL_DATE_CONVERSION",
+        object_type=types.ObjectType.TRIGGER,
+        object_schema="THE",
+    )
+
+    assert expect_dep1 in deps
+    assert expect_dep2 in deps
+    assert expect_dep3 in deps
+    assert expect_dep4 in deps
+    assert expect_dep5 in deps
+    assert not_in not in deps
+    assert not_in2 not in deps
+
+
+def test_get_migration_type(
+    migration_file_triggers,
+    migration_file_packages,
+    migration_file_w_multiple_idx,
+):
+    mg_file = migration_files.MigrationFileParser(migration_file_triggers)
+    mg_type = mg_file.get_migration_type()
+    assert mg_type == types.DDLType.TRIGGER
+
+    mg_file = migration_files.MigrationFileParser(migration_file_packages)
+    mg_type = mg_file.get_migration_type()
+    assert mg_type == types.DDLType.PACKAGE
+
+    mg_file = migration_files.MigrationFileParser(migration_file_w_multiple_idx)
+    mg_type = mg_file.get_migration_type()
+    assert mg_type == types.DDLType.DB_OBJ_DDL

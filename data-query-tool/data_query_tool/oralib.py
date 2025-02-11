@@ -36,6 +36,7 @@ class DDLCache:
         self.ddl_cache = []
         # triggers are created last
         self.triggers = []
+        self.packages = []
 
     def add_ddl(
         self,
@@ -52,10 +53,12 @@ class DDLCache:
         """
         if db_object_type == types.ObjectType.TRIGGER:
             self.triggers.extend(ddl)
+        elif db_object_type == types.ObjectType.PACKAGE:
+            self.packages.extend(ddl)
         else:
             self.ddl_cache.extend(ddl)
 
-    def get_ddl(self) -> list[str]:
+    def get_ddl(self) -> list[types.DDLCachedObject]:
         """
         Compile and return the DDL code.
 
@@ -66,7 +69,28 @@ class DDLCache:
             be executed.
         :rtype: list[str]
         """
-        return self.ddl_cache + self.triggers
+        all_DDL = []
+        ddl_obj = None
+        if self.ddl_cache:
+            ddl_obj = types.DDLCachedObject(
+                ddl_type=types.DDLType.DB_OBJ_DDL,
+                ddl_definition=self.ddl_cache,
+            )
+            all_DDL.append(ddl_obj)
+        if self.triggers:
+            ddl_obj = types.DDLCachedObject(
+                ddl_type=types.DDLType.TRIGGER,
+                ddl_definition=self.triggers,
+            )
+            all_DDL.append(ddl_obj)
+        if self.packages:
+            ddl_obj = types.DDLCachedObject(
+                ddl_type=types.DDLType.PACKAGE,
+                ddl_definition=self.packages,
+            )
+            all_DDL.append(ddl_obj)
+        # return self.ddl_cache + self.triggers
+        return all_DDL
 
     def merge_caches(self, ddl_cache: "DDLCache") -> None:
         """
@@ -77,6 +101,7 @@ class DDLCache:
         """
         self.ddl_cache.extend(ddl_cache.ddl_cache)
         self.triggers.extend(ddl_cache.triggers)
+        self.packages.extend(ddl_cache.packages)
 
 
 class Oracle:
@@ -352,7 +377,7 @@ class Oracle:
                     ddl=object_ddls,
                 )
                 LOGGER.debug("DDL: TABLE: %s", relation.object_name)
-            # dependencies and not already exported
+            # dependencies and not already exported, recurse...
             elif not self.exported_objects.exists(
                 dependency_obj,
             ):
@@ -539,8 +564,9 @@ class Oracle:
                         owner=:schema AND
                         (TYPE != 'TRIGGER' OR REFERENCED_OWNER != 'SYS') AND
                         (REFERENCED_NAME!=:table_name OR
-                         REFERENCED_TYPE != 'TABLE') AND  NOT
-                         ( REFERENCED_OWNER = 'PUBLIC' AND REFERENCED_NAME = 'DUAL' AND REFERENCED_TYPE = 'SYNONYM' )
+                         REFERENCED_TYPE != 'TABLE') AND NOT
+                         ( REFERENCED_OWNER = 'PUBLIC' AND REFERENCED_NAME = 'DUAL' AND REFERENCED_TYPE = 'SYNONYM' ) AND NOT
+                         ( REFERENCED_OWNER = 'MDSYS' AND REFERENCED_NAME = 'SDO_GEOMETRY' AND REFERENCED_TYPE = 'TYPE' )
                 """
                 cursor = self.connection.cursor()
                 cursor.execute(
@@ -553,6 +579,8 @@ class Oracle:
                 deps = []
                 # iterating over the trigger dependencies
                 for cur_result in cur_results:
+                    LOGGER.debug("cur_result: %s", cur_result)
+                    LOGGER.debug("cur_result type: %s", cur_result[1])
                     object_type = types.ObjectType[cur_result[1]]
                     # if its a table then get its dependencies
                     if object_type == types.ObjectType.TABLE:
@@ -571,6 +599,23 @@ class Oracle:
                                 dependency_list=[],
                             ),
                         )
+                    elif object_type == types.ObjectType.PACKAGE:
+                        deps.append(
+                            types.DBDependencyMapping(
+                                object_name=cur_result[0],
+                                object_type=types.ObjectType.PACKAGE,
+                                object_schema=cur_result[2],
+                                dependency_list=[],
+                            ),
+                        )
+                    else:
+                        LOGGER.debug(
+                            "Skipping dependency %s %s",
+                            cur_result[0],
+                            object_type,
+                        )
+                        msg = "unknown object type"
+                        raise ValueError(msg)
 
                 trigger_dep = types.DBDependencyMapping(
                     object_name=trigger_name,

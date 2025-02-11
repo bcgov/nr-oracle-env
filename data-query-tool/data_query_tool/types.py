@@ -14,6 +14,20 @@ from enum import Enum
 LOGGER = logging.getLogger(__name__)
 
 
+class SupportedVersionTypes(Enum):
+    """
+    Define the supported version types.
+
+    An enumeration of the different version types that are supported by the
+    scripts in this project.
+
+    """
+
+    MAJOR = 1
+    MINOR = 2
+    MICRO = 3
+
+
 class ObjectType(Enum):
     """
     Define the database types that are supported.
@@ -30,6 +44,46 @@ class ObjectType(Enum):
     FUNCTION = 5
     SEQUENCE = 6
     PACKAGE = 7
+
+
+class DDLType(Enum):
+    """
+    Define the DDL types.
+
+    An enumeration of the different DDL types that are supported by the
+    scripts in this project.  The types determine how the files will be parsed.
+
+    TRIGGERS - will go in their own files.
+    PACKAGES - will go in their own files.
+    DB_OBJ_DDL - This will contain "normal" database objects like tables, views,
+                 indicies, etc.
+    """
+
+    TRIGGER = 1
+    PACKAGE = 2
+    DB_OBJ_DDL = 3
+
+
+@dataclass
+class DDLCachedObject:
+    """
+    Data class for DDL.
+
+    This class allows the identification of the DDL type, so that the creation
+    and parsing of DDL files can be handled differently depending on the type
+    of information they contain.  This simplifies the process of parsing and
+    the existing migration files.  Parsing files with PL/SQL code is different
+    from parsing files with standard object declarations like tables, views,
+    indecies, etc.
+
+    * ddl_type: the type of ddl contained
+    * ddl_definition: the actual ddl definitions of this type in the order that
+        they should be created.
+
+    """
+
+    ddl_type: DDLType
+    ddl_definition: list[str]
 
 
 @dataclass
