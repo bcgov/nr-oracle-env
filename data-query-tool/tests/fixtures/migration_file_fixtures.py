@@ -33,3 +33,19 @@ def migration_file_w_trigger(data_dir) -> pathlib.Path:
 def migration_file_w_multiple_idx(data_dir) -> pathlib.Path:
     migration_file = pathlib.Path(data_dir, "test_data", "test_migration3.sql")
     yield migration_file
+
+
+@pytest.fixture(scope="module")
+def migration_file_triggers(data_dir) -> pathlib.Path:
+    migration_file = pathlib.Path(
+        data_dir, "test_data", "V1.0.2__first_migration_T.sql"
+    )
+    yield migration_file
+
+
+@pytest.fixture(scope="module")
+def migration_file_packages(data_dir) -> pathlib.Path:
+    migration_file = pathlib.Path(
+        data_dir, "test_data", "V1.0.1__first_migration_P.sql"
+    )
+    yield migration_file

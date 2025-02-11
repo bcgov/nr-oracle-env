@@ -39,13 +39,9 @@ create-migrations \
 --migration-name seed_plan_zone \
 --migration-folder .data//migrations-demo2
 ```
---migration-folder /home/kjnether/fsa_proj/nr-fds-pyetl/data_prep/migrations_ora/sql
 
 
 
-THE"."SEEDLOT_PLAN_ZONE
-THE"."SEEDLOT_OWNER_QUANTITY
 
-CNS_T_TEST_REP_MC
-CNS_T_TSC_TEST_RESULT
-CNS_T_RQST_ITM_ACTVTY
+
+
