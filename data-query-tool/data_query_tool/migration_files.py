@@ -2,7 +2,6 @@
 Create migration files.
 """
 
-import copy
 import logging
 import pathlib
 import re
@@ -123,10 +122,9 @@ class MigrationFile:
         )
         migration_file = self.migration_folder / migration_file_name
         if migration_file.exists():
-            LOGGER.warning("migration file already exists: %s", migration_file)
-            raise FileExistsError(
-                "migration file already exists: %s", migration_file
-            )
+            msg = f"Migration file already exists: {migration_file}"
+            LOGGER.error(msg)
+            raise FileExistsError(msg)
         LOGGER.debug("migration_file is: %s", migration_file)
         return migration_file
 
@@ -161,8 +159,8 @@ class MigrationFile:
         :param increment: The amount to increment the version number by.
             Defaults to 1.
         :type increment: int, optional
-        :raises FileExistsError: If the calculated migration file already exists.
-            then raise this exception.
+        :raises FileExistsError: If the calculated migration file already
+            exists. then raise this exception.
         :return: a pathlib object that represents the migration file to create.
         :rtype: pathlib.Path
         """
@@ -188,14 +186,15 @@ class MigrationFile:
         )
         migration_file = self.migration_folder / migration_file_name
         if migration_file.exists():
-            msg = "migration file already exists: " f"{migration_file}"
+            msg = f"migration file already exists: {migration_file}"
             LOGGER.warning(msg)
             raise FileExistsError(msg)
         LOGGER.debug("migration_file with suffix is: %s", migration_file)
         return migration_file
 
     def get_trigger_migration_file(
-        self, current_migration_file: pathlib.Path
+        self,
+        current_migration_file: pathlib.Path,
     ) -> pathlib.Path:
         """
         Return the name of the trigger migration file to create.
@@ -216,7 +215,8 @@ class MigrationFile:
         )
 
     def get_package_migration_file(
-        self, current_migration_file: pathlib.Path
+        self,
+        current_migration_file: pathlib.Path,
     ) -> pathlib.Path:
         """
         Return the name of the trigger migration file to create.
@@ -256,7 +256,7 @@ class MigrationFile:
     def increment_version(
         self,
         current_version: packaging.version.Version,
-        increment_type: types.SupportedVersionTypes = types.SupportedVersionTypes.MINOR,
+        increment_type: types.SupportedVersionTypes = types.SupportedVersionTypes.MINOR,  # noqa: E501
         increment: int = 1,
     ) -> packaging.version.Version:
         """
@@ -265,16 +265,6 @@ class MigrationFile:
         By default will increment by minor version.  If the increment_type is
 
         """
-        # next_version_str = (
-        #     f"{max_version.major}.{max_version.minor}.{max_version.micro + 1}"
-        # )
-
-        # version_parts = list(version.release)
-        # version_parts[-1] += 1
-        # new_version = packaging.version.Version(
-        #     ".".join(map(str, version_parts)),
-        # )
-        # new_version = copy.deepcopy(current_version)
 
         # get the value that corresponds with the property that is contained in
         # the increment_type and increment it by 1.
@@ -290,18 +280,18 @@ class MigrationFile:
             new_version_list.append(version_num)
 
         new_version = packaging.version.Version(
-            ".".join(map(str, new_version_list))
+            ".".join(map(str, new_version_list)),
         )
-        # new_version = (
-        #     f"{current_version.major}.{current_version.minor}.{current_version.micro + 1}",
-        # )
         LOGGER.debug(
-            "new version: %s, old version %s", new_version, current_version
+            "new version: %s, old version %s",
+            new_version,
+            current_version,
         )
         return new_version
 
     def write_migrations(
-        self, migration_list: list[types.DDLCachedObject]
+        self,
+        migration_list: list[types.DDLCachedObject],
     ) -> None:
         """
         Write the migrations to the migration files.
@@ -348,37 +338,6 @@ class MigrationFile:
                     for migration_statement in mgr_cache.ddl_definition:
                         fh.write(migration_statement)
 
-            # # start with the DB_OBJ_DDL objects
-            # ddl_obj_str = [for obj in migration_list if obj.ddl_type == types.DDLType.DB_OBJ_DDL]
-            # migration_file = self.get_migration_file()
-            # if ddl_obj_str:
-            #     LOGGER.debug("migration_file : %s", migration_file)
-            #     with migration_file.open("w") as fh:
-            #         for migration in migration_list:
-            #             LOGGER.debug("migration: %s %s", type(migration), migration)
-            #             fh.write(migration)
-            # # next write the packages
-            # pkg_obj_str = [for obj in migration_list if obj.ddl_type == types.DDLType.PACKAGE]
-            # migration_file_pkg = self.get_package_migration_file(migration_file)
-            # if pkg_obj_str:
-            #     LOGGER.debug("migration_file_pkg : %s", migration_file_pkg)
-            #     with migration_file_pkg.open("w") as fh:
-            #         for migration in migration_list:
-            #             LOGGER.debug("migration: %s %s", type(migration), migration)
-            #             fh.write(migration)
-
-            # trg_obj = [for obj in migration_list if obj.ddl_type == types.DDLType.TRIGGER]
-            # migration_file_trg = self.get_trigger_migration_file(migration_file)
-            # if trg_obj:
-            #     if len(trg_obj) > 1:
-            #         LOGGER.warning("more than one trigger def in migration_list")
-            #         raise ValueError("more than one trigger def in migration_list")
-            #     trg_defs = trg_obj[0].ddl_definition
-            #     LOGGER.debug("migration_file_pkg : %s", migration_file_trg)
-            #     with migration_file_trg.open("w") as fh:
-            #         for migration in trg_defs:
-            #             LOGGER.debug("migration: %s %s", type(migration), migration)
-            #             fh.write(migration)
         else:
             LOGGER.info("no migrations to write: %s", migration_list)
 
@@ -428,18 +387,14 @@ class MigrationFile:
         for migration_file in migration_files:
             # is it a flyway version file
             if version_file_ptrn.match(migration_file.name):
-                # migration_version = migration_file.stem.split("__")[0][1:]
-                # migration_version = packaging.version.Version(migration_version)
                 migration_version = self.extract_version(migration_file)
                 LOGGER.debug("migration_version: %s", migration_version)
-            if migration_version > max_version:
-                max_version = migration_version
-        # next_version_str = (
-        #     f"{max_version.major}.{max_version.minor}.{max_version.micro + 1}"
-        # )
+            max_version = max(max_version, migration_version)
         next_version = self.increment_version(max_version)
         LOGGER.debug(
-            "next_version_str: %s %s", next_version, type(next_version)
+            "next_version_str: %s %s",
+            next_version,
+            type(next_version),
         )
         LOGGER.debug(
             "next version is: %s",
@@ -485,31 +440,62 @@ class MigrationFileParser:
         """
         if self.migration_file.stem.endswith("_T"):
             return types.DDLType.TRIGGER
-        elif self.migration_file.stem.endswith("_P"):
+        if self.migration_file.stem.endswith("_P"):
             return types.DDLType.PACKAGE
-        else:
-            return types.DDLType.DB_OBJ_DDL
+        return types.DDLType.DB_OBJ_DDL
 
     def get_dependency(self) -> list[types.Dependency]:
+        """
+        Get the database dependencies of the current migration file.
+
+        Opens the current migration file (defined in the constructor) and parses
+        the content in the migration file to determine what objects are being
+        created.
+
+        This method determines what kind of migration file we are dealing with.
+        This tool will separate migration files out into three types.  One that
+        contains regular database DDL, another for triggers and a third for
+        database packages.  Each of these types has its own method to extract
+        the objects that are being created in the migration file.
+
+        The reason for the separation is parsing out regular database DDL and
+        DDL that contains PL/SQL code is difficult.  Separating the types
+        is a way to simple way around having to write a complex parser.
+
+        :raises ValueError: This error gets raised if a unknown migration types
+            is passed to this method.  This should never happen.
+        :return: a list of database dependency objects that are created in said
+            migration file.
+        :rtype: list[types.Dependency]
+        """
         migration_type = self.get_migration_type()
         if migration_type == types.DDLType.TRIGGER:
             return self.get_dependency_trigger()
-        elif migration_type == types.DDLType.PACKAGE:
+        if migration_type == types.DDLType.PACKAGE:
             return self.get_dependency_package()
-        elif migration_type == types.DDLType.DB_OBJ_DDL:
+        if migration_type == types.DDLType.DB_OBJ_DDL:
             return self.get_dependency_db_obj_ddl()
-        else:
-            raise ValueError("migration type not recognized")
+        # if we get here then we have a migration type that is not recognized
+        msg = f"migration type: {migration_type} not recognized"
+        raise ValueError(msg)
 
     def get_dependency_package(self) -> list[types.Dependency]:
+        """
+        Get dependencies of a migration file containing package definitions.
+
+        Specific method to extract package defs from a migration file.
+
+        :return: A database dependency object that describes all the packages
+            that are created in the migration file.
+        :rtype: list[types.Dependency]
+        """
 
         with self.migration_file.open("r", encoding="utf-8") as file:
             sql_content = file.read()
 
         # Regex pattern to match Oracle CREATE PACKAGE statements
-        # regex_str = r'CREATE\s+(?:OR\s+REPLACE\s+)?(?:EDITIONABLE\s+)?PACKAGE\s+(?:("?\w+"?)\.)?("?\w+"?)',
         regex_str = (
-            r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:EDITIONABLE\s+)?PACKAGE\s+(?!BODY\b)"
+            r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:EDITIONABLE\s+)?PACKAGE\s+(?!BODY\b)"  # noqa: ISC003
             + r'(?:("?\w+"?)\.)?("?\w+"?)'
         )
         if isinstance(regex_str, tuple):
@@ -554,14 +540,13 @@ class MigrationFileParser:
                 and types that are created by the migration file.
         :rtype: list[types.Dependency]
         """
-        db_objects = []
-
         with self.migration_file.open("r", encoding="utf-8") as file:
             sql_content = file.read()
 
+        # Captures optional schema and trigger name
         trigger_pattern = re.compile(
             r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:EDITIONABLE\s+)?TRIGGER\s+"
-            r'(?:("?\w+"?)\.)?("?\w+"?)',  # Captures optional schema and trigger name
+            r'(?:("?\w+"?)\.)?("?\w+"?)',
             re.IGNORECASE,
         )
 
