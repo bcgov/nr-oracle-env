@@ -7,7 +7,6 @@ import pytest
 
 LOGGER = logging.getLogger(__name__)
 
-# data_prep/db_env_utils
 
 back_one_path = pathlib.Path(__file__).resolve().parents[1]
 print("back_one_path: %s", back_one_path)

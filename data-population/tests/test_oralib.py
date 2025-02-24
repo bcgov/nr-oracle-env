@@ -1,4 +1,6 @@
 import logging
+import os
+import pathlib
 import re
 
 import constants
@@ -192,34 +194,61 @@ def test_sdo_data_extract(docker_connection_params_ora):
     Verify sdo data can be extracted.
     """
     LOGGER.debug("docker_connection_params: %s", docker_connection_params_ora)
-    import os
 
+    print(f"env var is: {os.getenv('MY_ENV_VAR')}")
     db_params = env_config.ConnectionParameters(
         username=os.getenv("ORACLE_USER_TEST"),
         password=os.getenv("ORACLE_PASSWORD_TEST"),
         host=os.getenv("ORACLE_HOST_TEST"),
         port=os.getenv("ORACLE_PORT_TEST"),
         service_name=os.getenv("ORACLE_SERVICE_TEST"),
+        schema_to_sync=os.getenv("ORACLE_SCHEMA_TO_SYNC_TEST"),
     )
 
     db = oradb_lib.OracleDatabase(db_params)
 
     # Oracle connection details
     db.get_connection()
-    # Query to fetch data and convert SDO_GEOMETRY to WKT
-    query = """
-      SELECT
-        SUBMISSION_ID,INVASIVE_PLANT_ID,ORG_UNIT_NO,IAPP_SUBMISSION_STATUS_CODE,GENUS_CODE,SPECIES_CODE,SURVEY_DATE,
-        SDO_UTIL.TO_WKTGEOMETRY(geometry) AS geometry,
-        UTM_EASTING,UTM_NORTHING,UTM_ZONE,LOCATION_DESCRIPTION,ESTIMATED_AREA,SUBMITTER_LAST_NAME,SUBMITTER_FIRST_NAME,SUBMITTER_MIDDLE_INITIAL,SUBMITTER_PHONE_NUMBER,SUBMITTER_EMAIL_ADDRESS,SUBMITTER_COMMENTS,REVIEWER_COMMENTS,ENTRY_TIMESTAMP,ENTRY_USERID,UPDATE_TIMESTAMP,UPDATE_USERID,REVISION_COUNT
-      FROM
-          THE.INVASIVE_PLANT_SUBMISSION;
-    """
-    import pandas as pd
 
-    # Fetch data into a pandas DataFrame
-    df = pd.read_sql(query, db.connection)
-    df.to_parquet(
-        "spatial_data.parquet",
-        engine="pyarrow",
+    db.extract_data_SDO_GEOMETRY(
+        table="INVASIVE_PLANT_SUBMISSION",
+        export_file="invas_plt_sub_spatial.parquet",
+        overwrite=True,
     )
+
+
+def test_data_load(docker_connection_params_ora):
+    """
+    Verify data can be loaded.
+    """
+    LOGGER.debug("docker_connection_params: %s", docker_connection_params_ora)
+    db = oradb_lib.OracleDatabase(docker_connection_params_ora)
+    # /home/kjnether/fsa_proj/nr-fsa-orastruct/data-population/oracle_data_spatial.parquet
+
+    parquet_file = (
+        "/home/kjnether/fsa_proj/nr-fsa-orastruct/invas_plt_sub_spatial.parquet"
+    )
+    db.load_data(
+        table="INVASIVE_PLANT_SUBMISSION",
+        import_file="invas_plt_sub_spatial.parquet",
+        purge=False,
+    )
+    assert True
+
+
+def test_is_parquet(docker_connection_params_ora):
+    parquet_file = pathlib.Path(
+        "/home/kjnether/fsa_proj/nr-fsa-orastruct/invas_plt_sub_spatial.parquet"
+    )
+    LOGGER.debug("docker_connection_params: %s", docker_connection_params_ora)
+    db = oradb_lib.OracleDatabase(docker_connection_params_ora)
+    is_geoparq = db.is_geoparquet(parquet_file)
+    LOGGER.debug("is geoparq? :%s", is_geoparq)
+    assert is_geoparq
+
+    non_parq = pathlib.Path(
+        "/home/kjnether/fsa_proj/nr-fsa-orastruct/data-population/data/TEST/ORA/ACTIVITY_TREATMENT_UNIT.parquet"
+    )
+    is_geoparq = db.is_geoparquet(non_parq)
+    LOGGER.debug("is geoparq? :%s", is_geoparq)
+    assert not is_geoparq

@@ -16,6 +16,7 @@ ORACLE_SERVICE - database service
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import logging.config
 import re
@@ -23,8 +24,11 @@ from typing import TYPE_CHECKING
 
 import constants
 import db_lib
+import geopandas as gpd
 import oracledb
 import pandas as pd
+import pyarrow.parquet
+import shapely.wkt
 import sqlalchemy
 from oracledb.exceptions import DatabaseError
 
@@ -57,6 +61,13 @@ class OracleDatabase(db_lib.DB):
         """
         if self.connection is None:
             LOGGER.info("connecting the oracle database: %s", self.service_name)
+            dsn = oracledb.makedsn(
+                self.host, self.port, service_name=self.service_name
+            )
+            self.dsn_conn = oracledb.connect(
+                user=self.username, password=self.password, dsn=dsn
+            )
+
             self.connection = oracledb.connect(
                 user=self.username,
                 password=self.password,
@@ -182,7 +193,121 @@ class OracleDatabase(db_lib.DB):
         self.connection.commit()
         cursor.close()
 
+    def load_data_geoparquet(
+        self,
+        table: str,
+        import_file: pathlib.Path,
+        *,
+        purge: bool = False,
+    ) -> None:
+        """
+        Load data from a geoparquet file.
+
+        :param table: the name of the table that already exists, that the
+            parquet data will be loaded to.
+        :type table: str
+        :param import_file: the geoparquet file that will be loaded
+        :type import_file: pathlib.Path
+        :param purge: _description_, defaults to False
+        :type purge: bool, optional
+        """
+        self.get_connection()  # implement as a decorator!
+        cursor = self.connection.cursor()
+
+        spatial_column = self.get_geoparquet_spatial_column(import_file)
+        spatial_column_wkt = spatial_column + "_wkt"
+        LOGGER.debug("spatial_column is: %s", spatial_column)
+        LOGGER.debug("spatial_column wkt is: %s", spatial_column_wkt)
+
+        gdf = gpd.read_parquet(import_file)
+
+        # gdf[spatial_column] = gdf[spatial_column].apply(lambda x: x.wkt)
+        gdf[spatial_column_wkt] = gdf[spatial_column].apply(
+            lambda x: shapely.wkt.dumps(x) if x else None
+        )
+
+        LOGGER.debug(spatial_column)
+        LOGGER.debug("gdf columns: %s", gdf.columns)
+
+        columns = self.get_column_list(table)
+        LOGGER.debug("columns: %s", columns)
+        spatial_columns = self.get_sdo_geometry_columns(table)
+        columns_string = ", ".join(columns)
+        value_param_list = []
+        for column in columns:
+            if column in spatial_columns:
+                # TODO: need to check what the projection is in our sdo
+                value_param_list.append(f"SDO_GEOMETRY(:{column}, 3005)")
+            else:
+                value_param_list.append(f":{column}")
+        column_value_str = ", ".join(value_param_list)
+        insert_stmt = f"""
+            INSERT INTO {self.schema_2_sync}.{table} ({columns_string})
+            VALUES ({column_value_str})
+        """
+        LOGGER.debug("statement: %s", insert_stmt)
+        for index, row in gdf.iterrows():
+            data_dict = {}
+            LOGGER.debug("row %s", row)
+            for column in columns:
+                # gdf.at[row_index, "column_name"]
+                if column.lower() == spatial_column.lower():
+                    LOGGER.debug(
+                        "dealing with spatial column:%s gdf column %s",
+                        column,
+                        spatial_column_wkt,
+                    )
+                    data_dict[column] = row[spatial_column_wkt]
+                else:
+                    LOGGER.debug("row value: %s", row[column.lower()])
+                    data_dict[column] = row[column.lower()]
+            LOGGER.debug("write record")
+            cursor.execute(insert_stmt, data_dict)
+
+        cursor.close()
+
     def load_data(
+        self,
+        table: str,
+        import_file: pathlib.Path,
+        *,
+        purge: bool = False,
+    ) -> None:
+        """
+        Load the data from the file into the table.
+
+        Override the default db_lib method.  Identify if the source parquet
+        file is geoparquet.  If so then use custom load logic that accomodates
+        the spatial column handling.  Otherwise just pass through to the
+        parent method.
+
+        :param table: the table to load the data into
+        :type table: str
+        :param import_file: the file to read the data from
+        :type import_file: str
+        :param purge: if True, delete the data from the table before loading.
+        :type purge: bool
+        """
+        pandas_df = pd.read_parquet(import_file)
+        self.get_connection()
+
+        if self.is_geoparquet(import_file):
+            LOGGER.info("geoparquet table: %s", table)
+            LOGGER.info("forking to use the SDO_GEOMETRY loader")
+            self.load_data_geoparquet(
+                table=table, import_file=import_file, purge=purge
+            )
+        else:
+            super().load_data(
+                table,
+                import_file,
+                purge=purge,
+            )
+
+    # this method does the same thing as the super method... no need to
+    # re-implement.
+    # replace with method that identifies spatial data
+    def load_data_delete(
         self,
         table: str,
         import_file: str,
@@ -296,7 +421,6 @@ class OracleDatabase(db_lib.DB):
                 sqlalchemy.exc.DatabaseError,
                 DatabaseError,
             ) as e:
-
                 LOGGER.exception(
                     "%s loading table %s",
                     e.__class__.__qualname__,
@@ -493,9 +617,239 @@ class OracleDatabase(db_lib.DB):
         seq_fix = FixOracleSequences(self)
         seq_fix.fix_sequences()
 
+    def get_sdo_geometry_columns(self, table_name: str) -> list[str]:
+        """
+        Get the SDO_GEOMETRY columns for the table.
+
+        :param table_name: the name of the table to get the SDO_GEOMETRY columns
+            for
+        :type table_name: str
+        :return: a list of the SDO_GEOMETRY columns for the table
+        :rtype: list[str]
+        """
+        self.get_connection()
+        cursor = self.connection.cursor()
+        query = """
+        SELECT
+            column_name
+        FROM
+            all_tab_columns
+        WHERE
+            --user_generated = 'YES' AND
+            data_type = 'SDO_GEOMETRY' AND
+            table_name = :table_name AND
+            owner = :schema_name
+        """
+        LOGGER.debug("query: %s", query)
+        LOGGER.debug("table_name: %s", table_name)
+        schema_name = self.schema_2_sync
+        cursor.execute(
+            query, table_name=table_name, schema_name=schema_name.upper()
+        )
+        sdo_geometry = cursor.fetchall()
+        LOGGER.debug("sdo_geometry cols: %s", sdo_geometry)
+        return [row[0] for row in sdo_geometry]
+
+    def has_sdo_geometry(self, table_name: str) -> bool:
+        """
+        Check if the table has a SDO_GEOMETRY column.
+
+        :param table_name: the name of the table to check
+        :type table_name: str
+        :return: True if the table has a SDO_GEOMETRY column, False if it does
+            not
+        :rtype: bool
+        """
+        self.get_connection()
+        cursor = self.connection.cursor()
+        query = """
+        SELECT column_name FROM all_tab_columns
+        WHERE table_name = :table_name AND data_type = 'SDO_GEOMETRY'
+        """
+        cursor.execute(query, table_name=table_name)
+        sdo_geometry = cursor.fetchone()
+        return sdo_geometry is not None
+
+    def get_column_list(self, table: str) -> list[str]:
+        """
+        Get the list of columns for the table.
+
+        :param table: the table to get the columns for
+        :type table: str
+        :return: a list of the columns for the table
+        :rtype: list[str]
+        """
+        self.get_connection()
+        cursor = self.connection.cursor()
+        query = """
+        SELECT
+            column_name
+        FROM
+            all_tab_cols
+        WHERE
+            table_name = :table_name AND
+            owner = :schema_name AND
+            user_generated = 'YES'
+        ORDER BY
+            SEGMENT_COLUMN_ID
+        """
+        LOGGER.debug("query: %s", query)
+        LOGGER.debug("table: %s", table.upper())
+        LOGGER.debug("schema: %s", self.schema_2_sync.upper())
+        cursor.execute(
+            query,
+            table_name=table.upper(),
+            schema_name=self.schema_2_sync.upper(),
+        )
+        columns = [row[0] for row in cursor]
+        return columns
+
+    def sdo_to_wkt(self, sdo_geom):
+        # shapely.wkt.dumps(geom)
+        LOGGER.debug("sdo_geom: %s", sdo_geom)
+        if sdo_geom:
+            return shapely.wkt.dumps(sdo_geom)  # Convert Oracle LOB to WKT
+        return None
+
+    def generate_sdo_query(self, table):
+        column_list = self.get_column_list(table)
+        geometry_columns = self.get_sdo_geometry_columns(table)
+        column_with_wkb_func = []
+        for column in column_list:
+            if column in geometry_columns:
+                column_with_wkb_func.append(
+                    f"SDO_UTIL.TO_WKTGEOMETRY({column}) AS {column}"
+                )
+            else:
+                column_with_wkb_func.append(column)
+        query = f"SELECT {', '.join(column_with_wkb_func)} from {self.schema_2_sync}.{table}"
+        return query
+
+    def extract_data_SDO_GEOMETRY(
+        self,
+        table: str,
+        export_file: pathlib.Path,
+        *,
+        overwrite: bool = False,
+    ) -> bool:
+        """
+        Extract data from a table that contains SDO_GEOMETRY columns.
+
+        :param table: table who's data should be extracted
+        :type table: str
+        :param export_file: the file that the data will be written to
+        :type export_file: pathlib.Path
+        :param overwrite: if the file already exists what to do
+        :type overwrite: bool, optional
+        :return: was the file successfully created
+        :rtype: bool
+        """
+        column_list = self.get_column_list(table)
+        spatial_columns = self.get_sdo_geometry_columns(table)
+        LOGGER.debug("column list: %s", column_list)
+        query = self.generate_sdo_query(table)
+        LOGGER.debug("spatial query: %s", query)
+        self.get_sqlalchemy_engine()
+
+        df = pd.read_sql(query, self.sql_alchemy_engine)
+        LOGGER.debug("dataframe cols, %s", df.columns)
+        LOGGER.debug("spatial columns: %s", spatial_columns)
+        if len(spatial_columns) > 1:
+            msg = "only one spatial column is supported"
+            raise ValueError(msg)
+
+        spatial_col = spatial_columns[0]
+        LOGGER.debug("patch dataframe column for %s", spatial_col)
+        df[spatial_col.lower()] = df[spatial_col.lower()].apply(
+            shapely.wkt.loads,
+        )
+        # need to add the following to the dataframe crs="EPSG:4326")
+        gdf = gpd.GeoDataFrame(
+            df, geometry=spatial_col.lower(), crs="EPSG:3005"
+        )
+        gdf.to_parquet(
+            export_file,
+            index=False,
+            engine="pyarrow",
+            compression="snappy" if overwrite else "none",
+        )
+
+    def extract_data(
+        self,
+        table: str,
+        export_file: pathlib.Path,
+        *,
+        overwrite: bool = False,
+    ) -> bool:
+        """
+        Extract a table from the database to a parquet file.
+
+        This method overrides the default method id db_lib to enable forking
+        logic when a table with a SDO_GEOMETRY column is encountered.
+
+        :param table: the name of the table who's data will be copied to the
+            parquet file
+        :type table: str
+        :param export_file: the full path to the file that will be created, and
+            populated with the data from the table.
+        :type export_file: str
+        :param overwrite: if True the file will be overwritten if it exists,
+        :return: True if the file was created, False if it was not
+        :rtype: bool
+        """
+        LOGGER.debug("exporting table %s to %s", table, export_file)
+        file_created = False
+
+        if self.has_sdo_geometry(table):
+            LOGGER.info("table %s has SDO_GEOMETRY column", table)
+            LOGGER.info("forking to use the SDO_GEOMETRY extractor")
+        else:
+            file_created = super().extract_data(
+                table,
+                export_file,
+                overwrite=overwrite,
+            )
+        return file_created
+
+    def is_geoparquet(self, parquet_file_path: pathlib.Path) -> bool:
+        """
+        Identify if the path refers to a geoparquet file.
+
+        In order to support spatial data some of the parquet files that are used
+        to cache the data are geoparquet files and require different
+        functionality in order to load.
+
+        :param parquet_file_path: path to input parquet file
+        :type parquet_file_path: pathlib.Path
+        :return: bool that indicates if the file is a generic parquet file
+            or a geoparquet file.
+        :rtype: bool
+        """
+        metadata = pyarrow.parquet.read_metadata(parquet_file_path)
+        is_parquet = False
+
+        # Check for GeoParquet-specific metadata
+        if b"geo" in metadata.metadata:
+            LOGGER.debug("input parquet is geo! %s", parquet_file_path)
+            # geo_metadata = metadata.metadata[b"geo"].decode("utf-8")
+            # print("GeoParquet Metadata:", geo_metadata)
+            is_parquet = True
+        return is_parquet
+
+    def get_geoparquet_spatial_column(
+        self, parquet_file_path: pathlib.Path
+    ) -> str:
+        metadata = pyarrow.parquet.read_metadata(parquet_file_path)
+        spatial_column = None
+        if b"geo" in metadata.metadata:
+            geo_metadata = json.loads(metadata.metadata[b"geo"].decode("utf-8"))
+            spatial_column = geo_metadata.get("primary_column")
+
+            # all spatial columns? geo_metadata.get('columns', {}).keys()
+        return spatial_column
+
 
 class FixOracleSequences:
-
     def __init__(self, dbcls: OracleDatabase):
         self.dbcls = dbcls
 

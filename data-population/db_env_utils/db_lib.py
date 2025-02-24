@@ -326,6 +326,8 @@ class DB(ABC):
         if not export_file.exists() or overwrite:
             table_obj = self.get_table_object(table)
             select_obj = sqlalchemy.select(table_obj)
+            for column in select_obj.columns:
+                LOGGER.debug("column: %s type: %s", column, column.type)
 
             if export_file.exists():
                 # delete the local file if it exists
@@ -414,14 +416,29 @@ class DB(ABC):
             method = "multi"
         elif self.db_type == constants.DBType.ORA:
             method = None
-        pandas_df.to_sql(
-            table.lower(),
-            self.sql_alchemy_engine,
-            schema=self.schema_2_sync,
-            if_exists="append",
-            index=False,
-            method=method,
-        )
+        with (
+            self.sql_alchemy_engine.connect() as connection,
+            connection.begin(),
+        ):
+            pandas_df.to_sql(
+                table.lower(),
+                self.sql_alchemy_engine,
+                schema=self.schema_2_sync,
+                if_exists="append",
+                index=False,
+                method=method,
+            )
+
+        # now verify data
+        sql = "Select count(*) from {schema}.{table}"
+        cur = self.connection.cursor()
+        cur.execute(sql.format(schema=self.schema_2_sync, table=table))
+        result = cur.fetchall()
+        rows_loaded = result[0][0]
+        if not rows_loaded:
+            LOGGER.error("no rows loaded to table %s", table)
+        LOGGER.debug("rows loaded to table %s are:  %s", table, rows_loaded)
+        cur.close()
 
     def load_data_retry(
         self,
