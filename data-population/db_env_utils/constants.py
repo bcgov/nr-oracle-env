@@ -14,7 +14,6 @@ LOGGER = logging.getLogger(__name__)
 # get uploaded to object store, and where they are cached when pulled from
 # object store
 DATA_DIR = os.getenv("LOCAL_DATA_DIR", "data")
-# DATA_DIR = "data"
 
 # constraint backup directory
 CONSTRAINT_BACKUP_DIR = "fk_constraint_backup"
@@ -30,14 +29,13 @@ SQL_DUMP_SUFFIX = "sql.gz"
 OBJECT_STORE_DATA_DIRECTORY = os.getenv("OBJECT_STORE_DATA_DIRECTORY", "pyetl")
 
 # database filter string
-DB_FILTER_STRING = "nr-spar-{env_str}-database"
-
+DB_FILTER_STRING = os.getenv("DB_FILTER_STRING", "nr-spar-{env_str}-databaseee")
 # the port to use for the local port when establishing a port forward, and then
 # for connecting to the database that is in kubernetes
 DB_LOCAL_PORT = 5433
 
 
-# database types, used to identify which database (spar or oracle) is
+# database types, used to identify which database (oc_postgres or oracle) is
 # to be worked with
 class DBType(Enum):
     """
@@ -49,7 +47,7 @@ class DBType(Enum):
     """
 
     ORA = 1
-    SPAR = 2
+    OC_POSTGRES = 2
 
 
 def get_default_export_file_ostore_path(
@@ -66,7 +64,8 @@ def get_default_export_file_ostore_path(
     :param table: name of the database table who's corresponding data file in
         object storage is to be retrieved.
     :type table: str
-    :param db_type: an enumeration of the database type, either ORA or SPAR
+    :param db_type: an enumeration of the database type, either ORA or
+        OC_POSTGRES
     :type db_type: DBType
     :return: a path object that refers to the object storage location for the
         specified table.
@@ -74,7 +73,7 @@ def get_default_export_file_ostore_path(
     """
     if db_type == DBType.ORA:
         suffix = PARQUET_SUFFIX
-    elif db_type == DBType.SPAR:
+    elif db_type == DBType.OC_POSTGRES:
         suffix = SQL_DUMP_SUFFIX
     parquet_file_name = f"{table}.{suffix}"
     ostore_dir = get_export_ostore_path(db_type)
@@ -101,7 +100,7 @@ def get_default_export_file_path(
     return_table = None
     if db_type == DBType.ORA:
         return_table = get_parquet_file_path(table, env_str, db_type)
-    elif db_type == DBType.SPAR:
+    elif db_type == DBType.OC_POSTGRES:
         return_table = get_sql_dump_file_path(table, env_str, db_type)
     return return_table
 
@@ -158,7 +157,7 @@ def get_export_ostore_path(db_type: DBType) -> pathlib.Path:
     """
     Return the directory path in object storage where the data files are stored.
 
-    :param db_type: the type of database, either ORA or SPAR
+    :param db_type: the type of database, either ORA or OC_POSTGRES
     :type db_type: DBType
     :return: the directory where the data files are located in object storage
         for the specified database type

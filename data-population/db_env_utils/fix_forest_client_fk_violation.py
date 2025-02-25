@@ -49,7 +49,7 @@ class PostgresSeedlot:
         """
         dcr = docker_parser.ReadDockerCompose()
         LOGGER.debug("connecting to database... ")
-        local_db_params = dcr.get_spar_conn_params()
+        local_db_params = dcr.get_local_postgres_conn_params()
         self.db = postgresdb_lib.PostgresDatabase(local_db_params)
 
     def get_seedlot_fc_records(self) -> set:

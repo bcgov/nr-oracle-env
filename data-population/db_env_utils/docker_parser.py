@@ -58,7 +58,7 @@ class ReadDockerCompose:
         """
         if not comp_file_path:
             docker_comp_file_path = pathlib.Path(
-                "./docker-compose.yml"
+                "./docker-compose.yml",
             ).resolve()
         else:
             docker_comp_file_path = pathlib.Path(comp_file_path)
@@ -107,15 +107,19 @@ class ReadDockerCompose:
                     )
 
         if not docker_comp_file_path.exists():
+            err_msg = (
+                "Could not find the docker-compose file in the current "
+                f"or parent directory, {docker_comp_file_path}"
+            )
             raise FileNotFoundError(
-                "Could not find the docker-compose file in the current or parent directory, %s",
+                err_msg,
                 docker_comp_file_path,
             )
 
         LOGGER.info(f"Using docker-compose file: {docker_comp_file_path}")
         return docker_comp_file_path
 
-    def get_spar_conn_params(self) -> env_config.ConnectionParameters:
+    def get_local_postgres_conn_params(self) -> env_config.ConnectionParameters:
         """
         Return postgres connection parameters.
 
@@ -142,7 +146,7 @@ class ReadDockerCompose:
         # using localhost because the connection is going to be made external
         # to the docker container
         conn_tuple.host = os.getenv("POSTGRES_HOST", "localhost")
-        conn_tuple.schema_to_sync = "spar"
+        conn_tuple.schema_to_sync = os.getenv("PG_SCHEMA_2_SYNC", "spar")
         return conn_tuple
 
     def get_ora_conn_params(self) -> env_config.ConnectionParameters:
@@ -163,7 +167,9 @@ class ReadDockerCompose:
         ]
         dcr_port = self.docker_comp["services"]["oracle-spar"]["ports"][
             0
-        ].split(":",)[0]
+        ].split(
+            ":",
+        )[0]
         dcr_service_name = self.docker_comp["x-oracle-vars"]["ORACLE_DATABASE"]
 
         # this is setup to facilitate development of this code.  It will first

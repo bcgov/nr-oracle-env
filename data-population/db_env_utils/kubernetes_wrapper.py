@@ -99,7 +99,11 @@ class KubeClient:
 
         """
         LOGGER.debug("Opening port forward for the pod: %s", pod_name)
+        LOGGER.debug("remote port: %s", remote_port)
+        LOGGER.debug("local port: %s", local_port)
+
         pod = Pod.get(name=pod_name, namespace=namespace)
+
         self.pf = pod.portforward(
             remote_port=remote_port,
             local_port=local_port,

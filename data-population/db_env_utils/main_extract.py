@@ -58,7 +58,7 @@ LOGGER = logging.getLogger(__name__)
 @click.argument(
     "source",
     type=click.Choice(
-        ["SPAR", "ORA"],
+        ["OC_POSTGRES", "ORA"],
         case_sensitive=False,
     ),
     required=True,
@@ -80,13 +80,18 @@ def main(source, environment, refresh):
 
     Source:
 
-        * SPAR  - Extract data from the SPAR postgres database hosted on oc.
-        * ORA   - Extract data from the ORACLE database hosted on prem.
+        OC_POSTGRES: Extract data from a postgres database
+                    hosted on openshift.
+
+        ORA: Extract data from the ORACLE database
+                         hosted on prem.
+
 
     Environment:
 
-        * TEST - Extract data from the test environment.
-        * PROD - Extract data from the production environment.
+        TEST: Extract data from the test environment.
+
+        PROD: Extract data from the production environment.
 
     --refresh: set this flag if you want to purge and recreate local and remote
                (object store) cached data.

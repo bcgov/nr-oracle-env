@@ -55,9 +55,6 @@ class Utility:
         LOGGER.debug("datadir: %s", self.datadir)
         if not self.datadir.exists():
             self.datadir.mkdir(parents=True)
-        # env_path = pathlib.Path(self.datadir, self.env_str)
-        # if not env_path.exists():
-        #     env_path.mkdir()
 
     def configure_logging(self) -> None:
         """
@@ -91,15 +88,15 @@ class Utility:
         tables = []
         if self.db_type == constants.DBType.ORA:
             tables = self.get_tables_from_local_ora_docker()
-        elif self.db_type == constants.DBType.SPAR:
-            tables = self.get_tables_from_local_spar_docker()
+        elif self.db_type == constants.DBType.OC_POSTGRES:
+            tables = self.get_tables_from_local_postgres_docker()
         return tables
 
-    def get_tables_from_spar(self) -> list[str]:
+    def get_tables_from_oc_postgres(self) -> list[str]:
         """
-        Get tables from local containerized spar database.
+        Get tables from local containerized postgres database.
 
-        :return: list of tables found in the spar database schema
+        :return: list of tables found in the postgres database schema
         :rtype: list[str]
         """
         oc_params = self.env_obj.get_oc_constants()
@@ -114,31 +111,31 @@ class Utility:
         )
 
         # now get the actual tables
-        spar_db_params = self.get_dbparams_from_kubernetes()
+        oc_pg_db_params = self.get_dbparams_from_kubernetes()
         # swap the connection port to the local port configured for the
         # tunnel
-        spar_db_params.port = constants.DB_LOCAL_PORT
+        oc_pg_db_params.port = constants.DB_LOCAL_PORT
         db_connection = postgresdb_lib.PostgresDatabase(
-            connection_params=spar_db_params,
+            connection_params=oc_pg_db_params,
         )
         tables_to_export = db_connection.get_tables(
-            schema=spar_db_params.schema_to_sync,
+            schema=oc_pg_db_params.schema_to_sync,
             omit_tables=["FLYWAY_SCHEMA_HISTORY"],
         )
         LOGGER.debug("number of table to export: %s", len(tables_to_export))
         return tables_to_export
 
-    def get_tables_from_local_spar_docker(self) -> list[str]:
+    def get_tables_from_local_postgres_docker(self) -> list[str]:
         """
-        Get a list of table from local spar docker database.
+        Get a list of table from local postgres docker database.
 
-        :return: list of tables found in the local spar database schema
+        :return: list of tables found in the local postgres database schema
         :rtype: list[str]
         """
         dcr = docker_parser.ReadDockerCompose()
-        spar_params = dcr.get_spar_conn_params()
-        LOGGER.debug("schema to sync: %s", spar_params.schema_to_sync)
-        local_docker_db = postgresdb_lib.PostgresDatabase(spar_params)
+        pg_local_params = dcr.get_local_postgres_conn_params()
+        LOGGER.debug("schema to sync: %s", pg_local_params.schema_to_sync)
+        local_docker_db = postgresdb_lib.PostgresDatabase(pg_local_params)
         tables_to_export = local_docker_db.get_tables(
             local_docker_db.schema_2_sync,
             omit_tables=["FLYWAY_SCHEMA_HISTORY"],
@@ -151,13 +148,7 @@ class Utility:
         Get list of tables from local oracle docker database.
         """
         # start by trying to get parameters from the environment
-
-        # dcr = docker_parser.ReadDockerCompose()
-        # local_ora_params = dcr.get_ora_conn_params()
-        # local_ora_params.schema_to_sync = self.env_obj.get_schema_to_sync()
-        # LOGGER.debug("schema to sync: %s", local_ora_params.schema_to_sync)
         local_ora_params = self.env_obj.get_local_ora_db_env_constants()
-        # local_ora_params.schema_to_sync = self.env_obj.get_schema_to_sync()
 
         LOGGER.debug("local ora params: %s", local_ora_params)
 
@@ -241,8 +232,8 @@ class Utility:
         """
         if self.db_type == constants.DBType.ORA:
             tables = self.get_tables()
-        elif self.db_type == constants.DBType.SPAR:
-            tables = self.get_tables_from_spar()
+        elif self.db_type == constants.DBType.OC_POSTGRES:
+            tables = self.get_tables_from_oc_postgres()
         return tables
 
     def get_kubnernetes_db_pod(self) -> str:
@@ -286,6 +277,7 @@ class Utility:
         :return: database connection parameters used to connect to spar database
         :rtype: env_config.ConnectionParameters
         """
+        # TODO: remove this and make it a configuration or pass from environment
         oc_params = self.env_obj.get_oc_constants()
 
         db_filter_string = constants.DB_FILTER_STRING.format(
@@ -346,7 +338,7 @@ class Utility:
                 ora_params,
             )  # use the environment variables for connection parameters
             db_connection.get_connection()
-        elif self.db_type == constants.DBType.SPAR:
+        elif self.db_type == constants.DBType.OC_POSTGRES:
             spar_db_params = self.get_dbparams_from_kubernetes()
             # using port forward so override the port to the local port that
             # is forwarded to the remote port
@@ -394,7 +386,6 @@ class Utility:
                 ostore.object_exists(object_name=str(ostore_export_file))
                 and not refresh
             ):
-
                 LOGGER.info(
                     "Export file %s exists in object store, skipping export",
                     ostore_export_file,
@@ -423,7 +414,7 @@ class Utility:
                     )
                     LOGGER.debug("pausing for 5 seconds")
                     time.sleep(5)
-        if self.db_type == constants.DBType.SPAR:
+        if self.db_type == constants.DBType.OC_POSTGRES:
             self.kube_client.close_port_forward()
 
     def run_injest(self, purge: bool) -> None:
@@ -447,13 +438,12 @@ class Utility:
         dcr = docker_parser.ReadDockerCompose()
 
         if self.db_type == constants.DBType.ORA:
-
             local_db_params = dcr.get_ora_conn_params()
 
             local_db_params.schema_to_sync = self.env_obj.get_schema_to_sync()
             local_docker_db = oradb_lib.OracleDatabase(local_db_params)
 
-        elif self.db_type == constants.DBType.SPAR:
+        elif self.db_type == constants.DBType.OC_POSTGRES:
             local_db_params = dcr.get_spar_conn_params()
             local_docker_db = postgresdb_lib.PostgresDatabase(local_db_params)
 

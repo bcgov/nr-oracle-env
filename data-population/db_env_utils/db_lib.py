@@ -412,7 +412,7 @@ class DB(ABC):
         if purge:
             self.truncate_table(table.lower())
         LOGGER.debug("loading data to table: %s", table)
-        if self.db_type == constants.DBType.SPAR:
+        if self.db_type == constants.DBType.OC_POSTGRES:
             method = "multi"
         elif self.db_type == constants.DBType.ORA:
             method = None
@@ -553,7 +553,7 @@ class DB(ABC):
         LOGGER.debug("record count query: %s", query)
         self.get_connection()
         cursor = self.connection.cursor()
-        if self.db_type == constants.DBType.SPAR:
+        if self.db_type == constants.DBType.OC_POSTGRES:
             query = psycopg2.sql.SQL(
                 "SELECT COUNT(*) FROM {schema}.{table}",
             ).format(

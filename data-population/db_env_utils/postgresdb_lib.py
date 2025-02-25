@@ -53,7 +53,7 @@ class PostgresDatabase(db_lib.DB):
 
         Sets the db_type variable to SPAR.
         """
-        self.db_type = constants.DBType.SPAR
+        self.db_type = constants.DBType.OC_POSTGRES
 
     def get_sqlalchemy_engine(self) -> None:
         """
@@ -728,7 +728,6 @@ class FixPostgresSequences:
         return sequence_table_columns
 
     def get_sequence_last_val(self, sequence_name: str) -> int:
-
         self.dbcls.get_connection()
         cursor = self.dbcls.connection.cursor()
         query = """

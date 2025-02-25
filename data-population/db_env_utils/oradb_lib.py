@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 import constants
 import db_lib
 import geopandas as gpd
+import numpy
 import oracledb
 import pandas as pd
 import pyarrow.parquet
@@ -64,6 +65,7 @@ class OracleDatabase(db_lib.DB):
             dsn = oracledb.makedsn(
                 self.host, self.port, service_name=self.service_name
             )
+            LOGGER.debug("dsn is: %s", dsn)
             self.dsn_conn = oracledb.connect(
                 user=self.username, password=self.password, dsn=dsn
             )
@@ -225,6 +227,8 @@ class OracleDatabase(db_lib.DB):
         gdf[spatial_column_wkt] = gdf[spatial_column].apply(
             lambda x: shapely.wkt.dumps(x) if x else None
         )
+        # patch the nan to None in the df
+        gdf = gdf.replace({numpy.nan: None})
 
         LOGGER.debug(spatial_column)
         LOGGER.debug("gdf columns: %s", gdf.columns)
@@ -237,6 +241,7 @@ class OracleDatabase(db_lib.DB):
         for column in columns:
             if column in spatial_columns:
                 # TODO: need to check what the projection is in our sdo
+                # value_param_list.append(f"SDO_GEOMETRY(:'{column}', 3005)")
                 value_param_list.append(f"SDO_GEOMETRY(:{column}, 3005)")
             else:
                 value_param_list.append(f":{column}")
@@ -253,17 +258,22 @@ class OracleDatabase(db_lib.DB):
                 # gdf.at[row_index, "column_name"]
                 if column.lower() == spatial_column.lower():
                     LOGGER.debug(
-                        "dealing with spatial column:%s gdf column %s",
+                        "dealing with spatial column:%s gdf column: %s data: %s",
                         column,
                         spatial_column_wkt,
+                        row[spatial_column_wkt],
                     )
                     data_dict[column] = row[spatial_column_wkt]
                 else:
-                    LOGGER.debug("row value: %s", row[column.lower()])
+                    LOGGER.debug(
+                        "row value:%s - %s",
+                        column,
+                        row[column.lower()],
+                    )
                     data_dict[column] = row[column.lower()]
             LOGGER.debug("write record")
+            LOGGER.debug("data_dict: %s", data_dict)
             cursor.execute(insert_stmt, data_dict)
-
         cursor.close()
 
     def load_data(
