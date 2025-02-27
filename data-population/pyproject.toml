@@ -1,5 +1,10 @@
 [tool.ruff.lint]
 select = ["ALL"]
+ignore = [
+    # Relax the convention by _not_ requiring documentation for every function parameter.
+    "D200","D202","D212","ICN001"
+]
+
 
 [tool.ruff]
 line-length = 80
@@ -56,5 +61,5 @@ dev = [
     "black<25.0.0,>=24.8.0",
     "ruff<1.0.0,>=0.8.0",
     "mypy-boto3<2.0.0,>=1.35.38",
-    "pytest<9.0.0,>=8.3.3",
+    "pytest>=8.3.3,<9.0.0",
 ]

@@ -7,33 +7,57 @@
     "editor.codeActionsOnSave": {
         "source.organizeImports": "explicit"
     },
-    "python.defaultInterpreterPath": "./data-query-tool/.venv/bin/python",
+    //"editor.trimTrailingWhitespace": true,
+
+    // "python.defaultInterpreterPath": "./data-query-tool/.venv/bin/python",
+    // "python.testing.pytestArgs": [
+    //     "./data-query-tool",
+    // ],
+    //"python.envFile": "${workspaceFolder}/data-query-tool/.env",
+
+
+    "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
+    "python.testing.pytestArgs": [
+        "./data-population"
+    ],
+    "python.envFile": "${workspaceFolder}/data-population/.env",
+
     "[python]": {
-        "editor.defaultFormatter": "ms-python.black-formatter",
+        // "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.formatOnSave": true,
         "editor.codeActionsOnSave": {
             "source.organizeImports": "explicit"
         },
+
     },
     "isort.args":["--profile", "black"],
-    "python.formatting.provider": "black",
+    // "python.formatting.provider": "black",
     "ruff.codeAction.disableRuleComment": {
         "enable": true
     },
-    "ruff.lint.run": "onType",
+    "ruff.ignoredPaths": ["junk*"],
+    "python.linting.enabled": true,
+    "python.linting.ruffEnabled": true,
+
     "ruff.organizeImports": false,
     "autoDocstring.docstringFormat": "sphinx",
     "files.trimTrailingWhitespace": true,
-    "ruff.lint.args": [
-        "--unfixable=F401", "--extend-ignore=D200,D202,D212"
-    ],
-    "python.testing.pytestArgs": [
-        "./data-query-tool"
-    ],
+    // "ruff.lint.args": [
+    //     "--unfixable=F401", "--extend-ignore=D200,D202,D212"
+    // ],
+    //"ruff.lint.run": "onType",
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
     "black-formatter.args": [
         "--line-length=80"
     ],
+    "problems.ignore": [
+        "**/junk*"
+    ],
+    "files.associations": {
+        "**/junk*": ""
+    },
+
 }
 
