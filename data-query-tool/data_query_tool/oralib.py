@@ -138,6 +138,12 @@ class Oracle:
             self.sa_engine = sqlalchemy.create_engine(
                 connstr,
             )
+            self.sa_engine.connect()
+            with self.sa_engine.connect() as connection:
+                result = connection.execute(
+                    sqlalchemy.text("SELECT CURRENT_TIMESTAMP")
+                )
+                print(result.fetchone())
 
     def connect(self) -> None:
         """
@@ -215,12 +221,14 @@ class Oracle:
             existing = []
         self.connect_sa()
         metadata = sqlalchemy.MetaData()
+        LOGGER.debug("current table: %s", table_name)
         table = sqlalchemy.Table(
             table_name.lower(),
             metadata,
             schema=schema.lower(),
             autoload_with=self.sa_engine,
         )
+        #
         related_struct = []
         related_tables = []
         for fk in table.foreign_keys:

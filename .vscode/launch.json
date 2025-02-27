@@ -6,6 +6,19 @@
     "configurations": [
 
         {
+            "name": "Python: Debug Pytest",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/data-population/tests",
+            "console": "integratedTerminal",
+            "env": {
+                "MY_ENV_VAR": "value1",
+                "DEBUG_MODE": "true"
+            }
+        },
+
+
+        {
             "name": "Python Debugger: Current File with Arguments",
             "type": "debugpy",
             "request": "launch",
@@ -55,14 +68,17 @@
             "type": "debugpy",
             "redirectOutput": false ,
             "request": "launch",
-            "program": "data-query-tool/main.py",
+            "cwd": "data-query-tool",
+            "program": "main.py",
             "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/data-query-tool/.venv/bin/python",
             "args": [
                 "show-deps",
                 "--seed-table",
-                "CNS_T_RQST_ITM_ACTVTY",
+                "ACTIVITY_TREATMENT_UNIT",
                 "--schema",
-                "CONSEP"
+                "THE"
             ]
         },
         {
@@ -97,7 +113,31 @@
                 "THE",
             ]
         },
-
+        {
+            "name": "data_extract_ORA_TEST",
+            "type": "debugpy",
+            "redirectOutput": false ,
+            "request": "launch",
+            "program": "data-population/db_env_utils/main_extract.py",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/data-population/.env",
+            "python": "${workspaceFolder}/data-population/.venv/bin/python",
+            "args": [
+                "ORA",
+                "TEST",
+            ]
+        },
+        {
+            "name": "batch_run",
+            "type": "debugpy",
+            "redirectOutput": false ,
+            "request": "launch",
+            "program": "batch_run.py",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "cwd":  "${workspaceFolder}/data-query-tool",
+            "python": "${workspaceFolder}/data-query-tool/.venv/bin/python",
+        },
 
     ]
 }
