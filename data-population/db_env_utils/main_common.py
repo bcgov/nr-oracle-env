@@ -351,11 +351,9 @@ class Utility:
         for table in tables_to_export:
             LOGGER.info("Exporting table %s", table)
             # skip the forest cover geometry table, for now
-            if table.upper() in (
-                "FOREST_COVER_GEOMETRY",
-                "TIMBER_MARK",
-                "HARVESTING_AUTHORITY",
-            ):
+            tables_2_skip = ["TIMBER_MARK", "HARVESTING_AUTHORITY"]
+            tables_2_skip = []
+            if table.upper() in tables_2_skip:
                 # FOREST_COVER_GEOMETRY - requires a tweak to address sdo geometry
                 # TIMBER_MARK - ValueError: year -1 is out of range
                 # HARVESTING_AUTHORITY - ValueError: year -1 is out of range
@@ -438,7 +436,8 @@ class Utility:
         dcr = docker_parser.ReadDockerCompose()
 
         if self.db_type == constants.DBType.ORA:
-            local_db_params = dcr.get_ora_conn_params()
+            # local_db_params = dcr.get_ora_conn_params()
+            local_db_params = self.env_obj.get_local_ora_db_env_constants()
 
             local_db_params.schema_to_sync = self.env_obj.get_schema_to_sync()
             local_docker_db = oradb_lib.OracleDatabase(local_db_params)

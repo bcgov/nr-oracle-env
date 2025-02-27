@@ -55,6 +55,27 @@ class ConnectionParameters:
 
 
 @dataclass
+class TriggerSequence:
+    """
+    Data class for trigger sequence mapping.
+    """
+
+    owner: str
+    trigger_name: str
+    sequence_name: str
+
+
+@dataclass
+class TriggerBodyTable:
+    """
+    Data class for trigger body and related table mapping.
+    """
+
+    trigger_body: str | None
+    trigger_table: str | None
+
+
+@dataclass
 class ObjectStoreParameters:
     """
     Parameters used to connect to object store buckets.
@@ -226,18 +247,18 @@ class Env:
           * ORACLE_SCHEMA_TO_SYNC_LOCAL
         """
         database_const = ConnectionParameters
-
-        database_const.host = os.getenv(f"ORACLE_HOST_LOCAL")
-        database_const.port = os.getenv(f"ORACLE_PORT_LOCAL")
+        envstr = "LOCAL"
+        database_const.host = os.getenv(f"ORACLE_HOST_{envstr}")
+        database_const.port = os.getenv(f"ORACLE_PORT_{envstr}")
         database_const.service_name = os.getenv(
-            f"ORACLE_SERVICE_LOCAL",
+            f"ORACLE_SERVICE_{envstr}",
         )
-        database_const.username = os.getenv(f"ORACLE_SYNC_USER_LOCAL")
+        database_const.username = os.getenv(f"ORACLE_SYNC_USER_{envstr}")
         database_const.password = os.getenv(
-            f"ORACLE_SYNC_PASSWORD_LOCAL",
+            f"ORACLE_SYNC_PASSWORD_{envstr}",
         )
         database_const.schema_to_sync = os.getenv(
-            f"ORACLE_SCHEMA_TO_SYNC_LOCAL",
+            f"ORACLE_SCHEMA_TO_SYNC_{envstr}",
         )
         return database_const
 

@@ -204,9 +204,7 @@ class DB(ABC):
     @abstractmethod
     def get_triggers(
         self,
-    ) -> list[
-        str
-    ]:  # TODO: return here and confirm the type that is returned is str
+    ) -> list[str]:
         """
         Return the triggers for the schema.
 
@@ -326,16 +324,15 @@ class DB(ABC):
         if not export_file.exists() or overwrite:
             table_obj = self.get_table_object(table)
             select_obj = sqlalchemy.select(table_obj)
-            for column in select_obj.columns:
-                LOGGER.debug("column: %s type: %s", column, column.type)
 
             if export_file.exists():
-                # delete the local file if it exists
+                # delete the local file if it exists as only gets here if
+                # overwrite is True
                 export_file.unlink()
-                # delete the local file if it exists
             LOGGER.debug("data_query_sql: %s", select_obj)
             LOGGER.debug("reading the %s", table)
             self.get_sqlalchemy_engine()
+
             df_orders = pd.read_sql(select_obj, self.sql_alchemy_engine)
 
             LOGGER.debug("writing to parquet file: %s ", export_file)
