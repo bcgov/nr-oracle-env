@@ -15,7 +15,6 @@ ORACLE_SERVICE - database service
 
 from __future__ import annotations
 
-import functools
 import json
 import logging
 import logging.config
@@ -24,6 +23,7 @@ from typing import TYPE_CHECKING
 
 import constants
 import db_lib
+import env_config
 import geopandas as gpd
 import numpy
 import oracledb
@@ -63,11 +63,15 @@ class OracleDatabase(db_lib.DB):
         if self.connection is None:
             LOGGER.info("connecting the oracle database: %s", self.service_name)
             dsn = oracledb.makedsn(
-                self.host, self.port, service_name=self.service_name
+                self.host,
+                self.port,
+                service_name=self.service_name,
             )
             LOGGER.debug("dsn is: %s", dsn)
             self.dsn_conn = oracledb.connect(
-                user=self.username, password=self.password, dsn=dsn
+                user=self.username,
+                password=self.password,
+                dsn=dsn,
             )
 
             self.connection = oracledb.connect(
@@ -223,9 +227,8 @@ class OracleDatabase(db_lib.DB):
 
         gdf = gpd.read_parquet(import_file)
 
-        # gdf[spatial_column] = gdf[spatial_column].apply(lambda x: x.wkt)
         gdf[spatial_column_wkt] = gdf[spatial_column].apply(
-            lambda x: shapely.wkt.dumps(x) if x else None
+            lambda x: shapely.wkt.dumps(x) if x else None,
         )
         # patch the nan to None in the df
         gdf = gdf.replace({numpy.nan: None})
@@ -240,8 +243,6 @@ class OracleDatabase(db_lib.DB):
         value_param_list = []
         for column in columns:
             if column in spatial_columns:
-                # TODO: need to check what the projection is in our sdo
-                # value_param_list.append(f"SDO_GEOMETRY(:'{column}', 3005)")
                 value_param_list.append(f"SDO_GEOMETRY(:{column}, 3005)")
             else:
                 value_param_list.append(f":{column}")
@@ -255,10 +256,13 @@ class OracleDatabase(db_lib.DB):
             data_dict = {}
             LOGGER.debug("row %s", row)
             for column in columns:
-                # gdf.at[row_index, "column_name"]
                 if column.lower() == spatial_column.lower():
+                    log_msg = (
+                        "dealing with spatial column: %s "
+                        "gdf column: %s data: %s"
+                    )
                     LOGGER.debug(
-                        "dealing with spatial column:%s gdf column: %s data: %s",
+                        log_msg,
                         column,
                         spatial_column_wkt,
                         row[spatial_column_wkt],
@@ -271,7 +275,7 @@ class OracleDatabase(db_lib.DB):
                         row[column.lower()],
                     )
                     data_dict[column] = row[column.lower()]
-            LOGGER.debug("write record")
+            LOGGER.debug("write record: %s", index)
             LOGGER.debug("data_dict: %s", data_dict)
             cursor.execute(insert_stmt, data_dict)
         cursor.close()
@@ -298,14 +302,15 @@ class OracleDatabase(db_lib.DB):
         :param purge: if True, delete the data from the table before loading.
         :type purge: bool
         """
-        pandas_df = pd.read_parquet(import_file)
         self.get_connection()
 
         if self.is_geoparquet(import_file):
             LOGGER.info("geoparquet table: %s", table)
             LOGGER.info("forking to use the SDO_GEOMETRY loader")
             self.load_data_geoparquet(
-                table=table, import_file=import_file, purge=purge
+                table=table,
+                import_file=import_file,
+                purge=purge,
             )
         else:
             super().load_data(
@@ -314,9 +319,6 @@ class OracleDatabase(db_lib.DB):
                 purge=purge,
             )
 
-    # this method does the same thing as the super method... no need to
-    # re-implement.
-    # replace with method that identifies spatial data
     def load_data_delete(
         self,
         table: str,
@@ -553,6 +555,14 @@ class OracleDatabase(db_lib.DB):
         return constraint_list
 
     def get_triggers(self) -> list[str]:
+        """
+        Query the database and return a list of trigger names.
+
+        :return: list of strings containing the triggers that exist in the
+            database for the schema that is described by the property
+            schema_2_sync
+        :rtype: list[str]
+        """
         self.get_connection()
         query = """
         SELECT TRIGGER_NAME FROM ALL_TRIGGERS WHERE owner = :schema
@@ -654,7 +664,9 @@ class OracleDatabase(db_lib.DB):
         LOGGER.debug("table_name: %s", table_name)
         schema_name = self.schema_2_sync
         cursor.execute(
-            query, table_name=table_name, schema_name=schema_name.upper()
+            query,
+            table_name=table_name,
+            schema_name=schema_name.upper(),
         )
         sdo_geometry = cursor.fetchall()
         LOGGER.debug("sdo_geometry cols: %s", sdo_geometry)
@@ -712,30 +724,38 @@ class OracleDatabase(db_lib.DB):
             schema_name=self.schema_2_sync.upper(),
         )
         columns = [row[0] for row in cursor]
+        LOGGER.debug("columns: %s", columns)
         return columns
 
-    def sdo_to_wkt(self, sdo_geom):
-        # shapely.wkt.dumps(geom)
-        LOGGER.debug("sdo_geom: %s", sdo_geom)
-        if sdo_geom:
-            return shapely.wkt.dumps(sdo_geom)  # Convert Oracle LOB to WKT
-        return None
+    def generate_sdo_query(self, table: str) -> str:
+        """
+        Generate a query that will extract the data from a table with SDO_GEOMETRY columns.
 
-    def generate_sdo_query(self, table):
+        :param table: _description_
+        :type table: str
+        :return: _description_
+        :rtype: str
+        """
         column_list = self.get_column_list(table)
         geometry_columns = self.get_sdo_geometry_columns(table)
         column_with_wkb_func = []
         for column in column_list:
             if column in geometry_columns:
                 column_with_wkb_func.append(
-                    f"SDO_UTIL.TO_WKTGEOMETRY({column}) AS {column}"
+                    f"SDO_UTIL.TO_WKTGEOMETRY({column}) AS {column}",
                 )
             else:
                 column_with_wkb_func.append(column)
-        query = f"SELECT {', '.join(column_with_wkb_func)} from {self.schema_2_sync}.{table}"
+        # Could use the approach used in the extract_data_illegal_year method
+        # to patch the query to handle sdo data.
+        query = (
+            f"SELECT {', '.join(column_with_wkb_func)} from "
+            f"{self.schema_2_sync}.{table}"
+        )
+        LOGGER.debug("sdo query: %s", query)
         return query
 
-    def extract_data_SDO_GEOMETRY(
+    def extract_data_sdogeometry(
         self,
         table: str,
         export_file: pathlib.Path,
@@ -761,8 +781,8 @@ class OracleDatabase(db_lib.DB):
         LOGGER.debug("spatial query: %s", query)
         self.get_sqlalchemy_engine()
 
-        df = pd.read_sql(query, self.sql_alchemy_engine)
-        LOGGER.debug("dataframe cols, %s", df.columns)
+        df_nonspatial = pd.read_sql(query, self.sql_alchemy_engine)
+        LOGGER.debug("dataframe cols, %s", df_nonspatial.columns)
         LOGGER.debug("spatial columns: %s", spatial_columns)
         if len(spatial_columns) > 1:
             msg = "only one spatial column is supported"
@@ -770,12 +790,16 @@ class OracleDatabase(db_lib.DB):
 
         spatial_col = spatial_columns[0]
         LOGGER.debug("patch dataframe column for %s", spatial_col)
-        df[spatial_col.lower()] = df[spatial_col.lower()].apply(
+        df_nonspatial[spatial_col.lower()] = df_nonspatial[
+            spatial_col.lower()
+        ].apply(
             shapely.wkt.loads,
         )
         # need to add the following to the dataframe crs="EPSG:4326")
         gdf = gpd.GeoDataFrame(
-            df, geometry=spatial_col.lower(), crs="EPSG:3005"
+            df_nonspatial,
+            geometry=spatial_col.lower(),
+            crs="EPSG:3005",
         )
         gdf.to_parquet(
             export_file,
@@ -814,12 +838,82 @@ class OracleDatabase(db_lib.DB):
             LOGGER.info("table %s has SDO_GEOMETRY column", table)
             LOGGER.info("forking to use the SDO_GEOMETRY extractor")
         else:
-            file_created = super().extract_data(
-                table,
-                export_file,
-                overwrite=overwrite,
-            )
+            try:
+                file_created = super().extract_data(
+                    table,
+                    export_file,
+                    overwrite=overwrite,
+                )
+            except ValueError as e:
+                if str(e) == "year -1 is out of range":
+                    LOGGER.debug(
+                        "Caught the ValueError: %s, trying workaround...",
+                        e,
+                    )
+                    self.extract_data_illegal_year(
+                        table=table,
+                        export_file=export_file,
+                    )
         return file_created
+
+    def extract_data_illegal_year(
+        self,
+        table: str,
+        export_file: pathlib.Path,
+    ) -> bool:
+        """
+        Make illegal dates legal and then dump the data to a parquet file.
+
+        Some dates that are being extracted from oracle include dates with
+        negative years.  This causes issues at the python db api level.  The
+        workaround implemented here moodifies the query that is used to retrieve
+        dates from the database, so that any dates with years of < 0 are changed
+        to having a year or 1.  I have no idea WHY there would be dates in the
+        database that have years of -1???
+
+        :param table: the input table that is to be exported
+        :type table: str
+        :param export_file: the name of the export file that is to be created.
+        :type export_file: pathlib.Path
+        :return: a boolean indicating whether the method succeded or failed.
+        :rtype: bool
+        """
+
+        self.get_connection()
+        table_obj = self.get_table_object(table)
+        select_obj = sqlalchemy.select(table_obj)
+        # convert the select to a string
+        select_str = str(
+            select_obj.compile(compile_kwargs={"literal_binds": True}),
+        )
+
+        # iterate over the columns, finding the date columns and replace
+        # with a function that should render the dates with -1 to be 1, then
+        # replace that column in the sql statement
+        for column in select_obj.columns:
+            LOGGER.debug("column: %s type: %s", column, column.type)
+            if isinstance(column.type, sqlalchemy.DateTime):
+                column_name = (
+                    f"{self.schema_2_sync}.{table}.{column.name}".lower()
+                )
+                column_new = (
+                    f"to_date(to_char({column_name}, "
+                    "'YYYY-MM-DD HH:MM:SS'), 'YYYY-MM-DD HH24:MI:SS') as "
+                    f"{column.name}"
+                )
+                select_str = select_str.replace(column_name, column_new)
+
+        # execute query and load results to the dataframe
+        cur = self.connection.cursor()
+        cur.execute(select_str)
+        df_orders = pd.DataFrame(cur.fetchall())
+
+        # finally write the dataframe to the parquet file
+        df_orders.to_parquet(
+            export_file,
+            engine="pyarrow",
+        )
+        return True
 
     def is_geoparquet(self, parquet_file_path: pathlib.Path) -> bool:
         """
@@ -841,14 +935,21 @@ class OracleDatabase(db_lib.DB):
         # Check for GeoParquet-specific metadata
         if b"geo" in metadata.metadata:
             LOGGER.debug("input parquet is geo! %s", parquet_file_path)
-            # geo_metadata = metadata.metadata[b"geo"].decode("utf-8")
-            # print("GeoParquet Metadata:", geo_metadata)
             is_parquet = True
         return is_parquet
 
     def get_geoparquet_spatial_column(
-        self, parquet_file_path: pathlib.Path
-    ) -> str:
+        self,
+        parquet_file_path: pathlib.Path,
+    ) -> str | None:
+        """
+        Get the spatial column from the parquet file if one exists.
+
+        :param parquet_file_path: The path to the parquet file
+        :type parquet_file_path: pathlib.Path
+        :return: the name of the spatial column if one exists.
+        :rtype: str|None
+        """
         metadata = pyarrow.parquet.read_metadata(parquet_file_path)
         spatial_column = None
         if b"geo" in metadata.metadata:
@@ -860,10 +961,26 @@ class OracleDatabase(db_lib.DB):
 
 
 class FixOracleSequences:
-    def __init__(self, dbcls: OracleDatabase):
+    """
+    Fix the sequences in the oracle database.
+    """
+
+    def __init__(self, dbcls: OracleDatabase) -> None:
+        """
+        Constructs instance of the FixOracleSequences class.
+
+        :param dbcls: an OracleDatabase class
+        :type dbcls: OracleDatabase
+        """
         self.dbcls = dbcls
 
-    def get_triggers_with_sequences(self):
+    def get_triggers_with_sequences(self) -> list[env_config.TriggerSequence]:
+        """
+        Get the triggers that use sequences.
+
+        :return: A list of Trigger Sequence Objects
+        :rtype: list[env_config.TriggerSequence]
+        """
         query = """
             SELECT
                 owner,
@@ -881,21 +998,19 @@ class FixOracleSequences:
         cursor.execute(query)
         trig_seq_list = []
         for row in cursor:
-            owner = row[0]
-            trigger_name = row[1]
-            sequence_name = row[2]
-            trig_seq_dict = {}
-            trig_seq_dict["owner"] = row[0]
-            trig_seq_dict["trigger_name"] = row[1]
-            trig_seq_dict["sequence_name"] = row[2]
-            trig_seq_list.append(trig_seq_dict)
+            trig_seq = env_config.TriggerSequence(
+                owner=row[0],
+                trigger_name=row[1],
+                sequence_name=row[2],
+            )
+            trig_seq_list.append(trig_seq)
         return trig_seq_list
 
     def get_trigger_body(
         self,
         trigger_name,
         trigger_owner,
-    ):
+    ) -> env_config.TriggerBodyTable:
         LOGGER.debug("getting trigger body")
         query = """
             SELECT
@@ -950,7 +1065,7 @@ class FixOracleSequences:
         LOGGER.debug("sequences found: %s", len(trig_seq_list))
         for trig_seq in trig_seq_list:
             trigger_struct = self.get_trigger_body(
-                trig_seq["trigger_name"], trig_seq["owner"]
+                trig_seq.trigger_name, trig_seq.owner
             )
 
             inserts = self.extract_inserts(
