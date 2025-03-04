@@ -302,8 +302,7 @@ class Utility:
             msg = (
                 "searching for secrets that match the pattern "
                 f"{db_filter_string} returned more than one pod, narrow the "
-                "search pattern so only one pod is returned. secrets returned:"
-                f" {secret_names}"
+                "search pattern so only one pod is returned."
             )
             LOGGER.exception(msg)
             raise IndexError(msg)
