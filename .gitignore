@@ -177,3 +177,8 @@ data-query-tool/data/junk/**
 data-query-tool/data/migrations/**
 junk.json
 data-query-tool/data/**
+data-population/data/**
+**.parquet
+junk.py
+data-population/db_env_utils/junk.py
+data-population/junk_simple_load.py
