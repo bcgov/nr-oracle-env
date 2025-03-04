@@ -11,6 +11,7 @@ import pathlib
 import socket
 import time
 
+import app_paths
 import constants
 import docker_parser
 import env_config
@@ -33,12 +34,8 @@ class Utility:
         """
         self.env_str = env_str
         self.env_obj = env_config.Env(env_str)
-        self.curdir = pathlib.Path(__file__).parents[0]
-        self.datadir = pathlib.Path(
-            constants.DATA_DIR,
-            self.env_str.upper(),
-            db.name.upper(),
-        )
+        self.app_paths = app_paths.AppPaths(self.env_obj)
+
         self.db_type = db
         self.kube_client = None
 
@@ -52,15 +49,17 @@ class Utility:
         environment (TEST or PROD)
 
         """
-        LOGGER.debug("datadir: %s", self.datadir)
-        if not self.datadir.exists():
-            self.datadir.mkdir(parents=True)
+        data_dir = self.app_paths.get_data_dir()
+        LOGGER.debug("datadir: %s", data_dir)
+        if not data_dir.exists():
+            data_dir.mkdir(parents=True)
 
     def configure_logging(self) -> None:
         """
         Configure logging.
         """
-        log_config_path = pathlib.Path(self.curdir, "logging.config")
+        log_config_path = self.app_paths.get_log_config_dir()
+        log_config_path = pathlib.Path(log_config_path, "logging.config")
         logging.config.fileConfig(
             log_config_path,
             disable_existing_loggers=False,
@@ -72,9 +71,15 @@ class Utility:
     def connect_ostore(self) -> object_store.OStore:
         """
         Connect to object store.
+
+        :return: an object store wrapper object.
+        :rtype: object_store.OStore
         """
         ostore_params = self.env_obj.get_ostore_constants()
-        return object_store.OStore(conn_params=ostore_params)
+        return object_store.OStore(
+            conn_params=ostore_params,
+            app_paths=self.app_paths,
+        )
 
     def get_tables(self) -> list[str]:
         """
@@ -152,7 +157,10 @@ class Utility:
 
         LOGGER.debug("local ora params: %s", local_ora_params)
 
-        local_docker_db = oradb_lib.OracleDatabase(local_ora_params)
+        local_docker_db = oradb_lib.OracleDatabase(
+            connection_params=local_ora_params,
+            app_paths=self.app_paths,
+        )
         tables_to_export = local_docker_db.get_tables(
             local_docker_db.schema_2_sync,
             omit_tables=["FLYWAY_SCHEMA_HISTORY"],
@@ -277,7 +285,6 @@ class Utility:
         :return: database connection parameters used to connect to spar database
         :rtype: env_config.ConnectionParameters
         """
-        # TODO: remove this and make it a configuration or pass from environment
         oc_params = self.env_obj.get_oc_constants()
 
         db_filter_string = constants.DB_FILTER_STRING.format(
@@ -318,7 +325,7 @@ class Utility:
         ).decode("utf-8")
         return db_conn_params
 
-    def run_extract(self, refresh: bool) -> None:
+    def run_extract(self, *, refresh: bool) -> None:
         """
         Run the extract process.
         """
@@ -336,6 +343,7 @@ class Utility:
             ora_params = self.env_obj.get_ora_db_env_constants()
             db_connection = oradb_lib.OracleDatabase(
                 ora_params,
+                self.app_paths,
             )  # use the environment variables for connection parameters
             db_connection.get_connection()
         elif self.db_type == constants.DBType.OC_POSTGRES:
@@ -352,16 +360,17 @@ class Utility:
             LOGGER.info("Exporting table %s", table)
             # skip the forest cover geometry table, for now
             tables_2_skip = ["TIMBER_MARK", "HARVESTING_AUTHORITY"]
-            tables_2_skip = []
+            # tables_2_skip = ["FOREST_COVER_GEOMETRY"]
             if table.upper() in tables_2_skip:
-                # FOREST_COVER_GEOMETRY - requires a tweak to address sdo geometry
+                # FOREST_COVER_GEOMETRY - requires a tweak to address sdo
+                #                         geometry
                 # TIMBER_MARK - ValueError: year -1 is out of range
                 # HARVESTING_AUTHORITY - ValueError: year -1 is out of range
                 continue
             # the export file type is different depending on the database.
             # originally wanted to keep to parquet, but loading the json data
             # used by spar doesn't work well with postgres.  So using pg_dump.
-            local_export_file = constants.get_default_export_file_path(
+            local_export_file = self.app_paths.get_default_export_file_path(
                 table,
                 self.env_obj.current_env,
                 self.db_type,
@@ -373,9 +382,11 @@ class Utility:
 
             LOGGER.debug("export_file: %s", local_export_file)
 
-            ostore_export_file = constants.get_default_export_file_ostore_path(
-                table,
-                self.db_type,
+            ostore_export_file = (
+                self.app_paths.get_default_export_file_ostore_path(
+                    table,
+                    self.db_type,
+                )
             )
             LOGGER.debug("ostore export file: %s", ostore_export_file)
             # if the remote export file exists and the refresh flag is not set
@@ -404,7 +415,8 @@ class Utility:
                 )
 
                 if file_created:
-                    # push the file to object store, if a new file has been created
+                    # push the file to object store, if a new file has been
+                    # created
                     ostore.put_data_files(
                         [table],
                         self.env_obj.current_env,
@@ -415,16 +427,19 @@ class Utility:
         if self.db_type == constants.DBType.OC_POSTGRES:
             self.kube_client.close_port_forward()
 
-    def run_injest(self, purge: bool) -> None:
+    def run_injest(self, *, purge: bool) -> None:
         """
         Run the ingest process.
         """
-        if purge and self.datadir.exists():
-            LOGGER.info(
-                "Purging cached local data and pulling fresh set from object store."
+        datadir = self.app_paths.get_data_dir()
+        if purge and datadir.exists():
+            logmsg = (
+                "Purging cached local data and pulling fresh set from "
+                "object store."
             )
+            LOGGER.info(logmsg)
             # delete the contents of the directory.
-            for file_path in self.datadir.iterdir():
+            for file_path in datadir.iterdir():
                 if file_path.is_file():
                     file_path.unlink()  # Delete the file
         self.make_dirs()
@@ -436,11 +451,12 @@ class Utility:
         dcr = docker_parser.ReadDockerCompose()
 
         if self.db_type == constants.DBType.ORA:
-            # local_db_params = dcr.get_ora_conn_params()
             local_db_params = self.env_obj.get_local_ora_db_env_constants()
 
             local_db_params.schema_to_sync = self.env_obj.get_schema_to_sync()
-            local_docker_db = oradb_lib.OracleDatabase(local_db_params)
+            local_docker_db = oradb_lib.OracleDatabase(
+                local_db_params, app_paths=self.app_paths
+            )
 
         elif self.db_type == constants.DBType.OC_POSTGRES:
             local_db_params = dcr.get_spar_conn_params()
@@ -454,9 +470,9 @@ class Utility:
 
         # delete the database data... this always happens for ingest
         local_docker_db.purge_data(table_list=tables_to_import, cascade=True)
-
+        datadir = self.app_paths.get_data_dir()
         local_docker_db.load_data_retry(
-            data_dir=self.datadir,
+            data_dir=datadir,
             table_list=tables_to_import,
             env_str=self.env_obj.current_env,
             purge=purge,

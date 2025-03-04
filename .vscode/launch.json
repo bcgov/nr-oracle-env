@@ -128,6 +128,20 @@
             ]
         },
         {
+            "name": "data_ingest_ORA_TEST",
+            "type": "debugpy",
+            "redirectOutput": false ,
+            "request": "launch",
+            "program": "data-population/db_env_utils/main_ingest.py",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/data-population/.env",
+            "python": "${workspaceFolder}/data-population/.venv/bin/python",
+            "args": [
+                "ORA",
+                "TEST",
+            ]
+        },
+        {
             "name": "batch_run",
             "type": "debugpy",
             "redirectOutput": false ,

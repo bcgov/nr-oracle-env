@@ -21,6 +21,7 @@ import logging.config
 import re
 from typing import TYPE_CHECKING
 
+import app_paths
 import constants
 import db_lib
 import env_config
@@ -28,9 +29,11 @@ import geopandas as gpd
 import numpy
 import oracledb
 import pandas as pd
+import pyarrow
 import pyarrow.parquet
 import shapely.wkt
 import sqlalchemy
+from env_config import ConnectionParameters
 from oracledb.exceptions import DatabaseError
 
 if TYPE_CHECKING:
@@ -52,6 +55,23 @@ class OracleDatabase(db_lib.DB):
     port: ORACLE_PORT
     service_name: ORACLE_SERVICE
     """
+
+    def __init__(
+        self,
+        connection_params: ConnectionParameters,
+        app_paths: app_paths.AppPaths,
+    ) -> None:
+        """
+        Contructs instance of OracleDatabase.
+
+        :param connection_params: parameters that are used to connect to the db.
+        :type connection_params: ConnectionParameters
+        """
+        super().__init__(
+            connection_params,
+            app_paths,
+        )  # Call the parent class's __init__ method
+        self.ora_cur_arraysize = 2500
 
     def get_connection(self) -> None:
         """
@@ -102,7 +122,7 @@ class OracleDatabase(db_lib.DB):
             dsn = f"oracle+oracledb://{self.username}:{self.password}@{self.host}:{self.port}/?service_name={self.service_name}"
             self.sql_alchemy_engine = sqlalchemy.create_engine(
                 dsn,
-                arraysize=1000,
+                arraysize=self.ora_cur_arraysize,
             )
 
     def disable_trigs(self, trigger_list: list[str]) -> None:
@@ -219,6 +239,7 @@ class OracleDatabase(db_lib.DB):
         """
         self.get_connection()  # implement as a decorator!
         cursor = self.connection.cursor()
+        cursor.arraysize = self.ora_cur_arraysize
 
         spatial_column = self.get_geoparquet_spatial_column(import_file)
         spatial_column_wkt = spatial_column + "_wkt"
@@ -420,7 +441,7 @@ class OracleDatabase(db_lib.DB):
         LOGGER.debug("retries: %s", retries)
         for table in table_list:
             spaces = " " * retries * 2
-            import_file = constants.get_parquet_file_path(
+            import_file = self.app_paths.get_parquet_file_path(
                 table,
                 env_str,
                 self.db_type,
@@ -729,11 +750,14 @@ class OracleDatabase(db_lib.DB):
 
     def generate_sdo_query(self, table: str) -> str:
         """
-        Generate a query that will extract the data from a table with SDO_GEOMETRY columns.
+        Generate an SDO query.
 
-        :param table: _description_
+        Generate a query that will extract the data from a table with
+        SDO_GEOMETRY columns as well known text (WKT)
+
+        :param table: input table name
         :type table: str
-        :return: _description_
+        :return: sdo query with geometries as WKT
         :rtype: str
         """
         column_list = self.get_column_list(table)
@@ -754,6 +778,23 @@ class OracleDatabase(db_lib.DB):
         )
         LOGGER.debug("sdo query: %s", query)
         return query
+
+    def get_temp_parquet_file(self, *, overwrite: bool = True) -> pathlib.Path:
+        """
+        Get a path to a temporary parquet file.
+
+        :param overwrite: if True checks to see if the file exists and deletes
+            it.
+        :type overwrite: bool
+        :return: the path to the temporary parquet file
+        :rtype: pathlib.Path
+        """
+
+        temp_parquet_file = self.app_paths.get_temp_parquet_file(
+            self.db_type,
+            overwrite=overwrite,
+        )
+        return temp_parquet_file
 
     def extract_data_sdogeometry(
         self,
@@ -776,37 +817,88 @@ class OracleDatabase(db_lib.DB):
         """
         column_list = self.get_column_list(table)
         spatial_columns = self.get_sdo_geometry_columns(table)
+        if len(spatial_columns) > 1:
+            msg = "only one spatial column is supported"
+            raise ValueError(msg)
+        spatial_col = spatial_columns[0]
+
         LOGGER.debug("column list: %s", column_list)
         query = self.generate_sdo_query(table)
         LOGGER.debug("spatial query: %s", query)
         self.get_sqlalchemy_engine()
 
-        df_nonspatial = pd.read_sql(query, self.sql_alchemy_engine)
-        LOGGER.debug("dataframe cols, %s", df_nonspatial.columns)
-        LOGGER.debug("spatial columns: %s", spatial_columns)
-        if len(spatial_columns) > 1:
-            msg = "only one spatial column is supported"
-            raise ValueError(msg)
+        writer = None
 
-        spatial_col = spatial_columns[0]
-        LOGGER.debug("patch dataframe column for %s", spatial_col)
-        df_nonspatial[spatial_col.lower()] = df_nonspatial[
-            spatial_col.lower()
-        ].apply(
+        chunk_size = 25000  # 25000  # number of rows to include in a chunk
+        itercnt = 1
+        for chunk in pd.read_sql(
+            query,
+            self.sql_alchemy_engine,
+            chunksize=chunk_size,
+        ):
+            if itercnt == 1:
+                # after first chunk is read, convert it to a pyarrow table and
+                # use that as the schema for the stream writer.
+                LOGGER.debug(
+                    "first chunk has been read, rows: %s", len(chunk_size)
+                )
+                table = self.df_to_gdf(chunk, spatial_col)
+                writer = pyarrow.parquet.ParquetWriter(
+                    str(export_file),
+                    table.schema,
+                    compression="snappy",
+                )
+                itercnt += 1
+                writer.write_table(table)
+                continue
+            LOGGER.debug(
+                "read chunk:%s chunks read: %s",
+                chunk_size,
+                chunk_size + itercnt,
+            )
+            table = self.df_to_gdf(chunk, spatial_col)
+            LOGGER.debug("    writing chunk to parquet file...")
+            writer.write_table(table)
+            itercnt += 1
+        writer.close()
+        return True
+
+    def df_to_gdf(self, df: pd.DataFrame, spatial_col: str) -> gpd.GeoDataFrame:
+        """
+        Convert a pandas DataFrame to a geopandas GeoDataFrame.
+
+        Also store information as wkb to allow for writing to parquet through
+        the stream writer.
+
+        :param df: the pandas DataFrame to convert
+        :type df: pd.DataFrame
+        :param spatial_col: the name of the spatial column
+        :type spatial_col: str
+        """
+        LOGGER.debug("    converting df to gdf...")
+        df[spatial_col.lower()] = df[spatial_col.lower()].apply(
             shapely.wkt.loads,
         )
-        # need to add the following to the dataframe crs="EPSG:4326")
+
         gdf = gpd.GeoDataFrame(
-            df_nonspatial,
+            df,
             geometry=spatial_col.lower(),
             crs="EPSG:3005",
         )
-        gdf.to_parquet(
-            export_file,
-            index=False,
-            engine="pyarrow",
-            compression="snappy" if overwrite else "none",
+
+        gdf["geometry_wkb"] = gdf[spatial_col.lower()].apply(
+            lambda geom: geom.wkb,
         )
+
+        # Drop the original geometry column
+        gdf = gdf.drop(spatial_col.lower(), axis=1)
+
+        # Rename the WKB column to 'geometry'
+        gdf = gdf.rename(columns={"geometry_wkb": spatial_col.lower()})
+
+        # Convert the GeoDataFrame to a PyArrow Table
+        table = pyarrow.Table.from_pandas(gdf)
+        return table
 
     def extract_data(
         self,
@@ -837,6 +929,11 @@ class OracleDatabase(db_lib.DB):
         if self.has_sdo_geometry(table):
             LOGGER.info("table %s has SDO_GEOMETRY column", table)
             LOGGER.info("forking to use the SDO_GEOMETRY extractor")
+            file_created = self.extract_data_sdogeometry(
+                table=table,
+                export_file=export_file,
+                overwrite=overwrite,
+            )
         else:
             try:
                 file_created = super().extract_data(
@@ -854,6 +951,8 @@ class OracleDatabase(db_lib.DB):
                         table=table,
                         export_file=export_file,
                     )
+                else:
+                    raise e
         return file_created
 
     def extract_data_illegal_year(
@@ -967,7 +1066,7 @@ class FixOracleSequences:
 
     def __init__(self, dbcls: OracleDatabase) -> None:
         """
-        Constructs instance of the FixOracleSequences class.
+        Construct instance of the FixOracleSequences class.
 
         :param dbcls: an OracleDatabase class
         :type dbcls: OracleDatabase
@@ -1008,9 +1107,19 @@ class FixOracleSequences:
 
     def get_trigger_body(
         self,
-        trigger_name,
-        trigger_owner,
+        trigger_name: str,
+        trigger_owner: str,
     ) -> env_config.TriggerBodyTable:
+        """
+        Extract the trigger body from the database.
+
+        :param trigger_name: name of the trigger to extract
+        :type trigger_name: str
+        :param trigger_owner: owner of the trigger / schema
+        :type trigger_owner: str
+        :return: the trigger body in a TriggerBodyTable object
+        :rtype: env_config.TriggerBodyTable
+        """
         LOGGER.debug("getting trigger body")
         query = """
             SELECT
@@ -1026,54 +1135,69 @@ class FixOracleSequences:
         self.dbcls.get_connection()
         cursor = self.dbcls.connection.cursor()
         cursor.execute(
-            query, trigger_name=trigger_name, trigger_owner=trigger_owner
+            query,
+            trigger_name=trigger_name,
+            trigger_owner=trigger_owner,
         )
         trigger_struct = cursor.fetchone()
         cursor.close()
 
-        trigger_body = trigger_struct[2]
-        table_name = trigger_struct[1]
-        ret_dict = {}
-        ret_dict["trigger_body"] = trigger_body
-        ret_dict["table_name"] = table_name
-        return ret_dict
+        return env_config.TriggerBodyTable(
+            trigger_body=trigger_struct[2],
+            table_name=trigger_struct[1],
+            table_owner=trigger_struct[0],
+        )
 
-    def extract_inserts(self, trigger_body, table_name):
+    def extract_inserts(self, trigger_body: str, table_name: str) -> str:
+        """
+        Extract the insert statements from the trigger body.
+
+        :param trigger_body: a string with a trigger definition
+        :type trigger_body: str
+        :param table_name: name of the table who's insert statements are to be
+            extracted
+        :type table_name: str
+        :return: insert statement from the trigger body for given table
+        :rtype: str
+        """
         # find the position of the insert statements
         # then from there find the first ';' character
-        # LOGGER.debug("trigger body: %s", trigger_body)
-        # regex_exp = (
-        #     rf"INSERT\s+INTO\s+\w*\.*{table_name}\s*\(.*?\)\s*VALUES\s*\(.*?\);"
-        # )
         LOGGER.debug("trigger body: %s ...", trigger_body[0:400])
         LOGGER.debug("table name: %s", table_name)
         regex_exp = (
-            rf"INSERT\s+INTO\s+\w*\.?\w+\s*\([^)]*\)\s*VALUES\s*\([^;]*\);"
+            r"INSERT\s+INTO\s+\w*\.?\w+\s*\([^)]*\)\s*VALUES\s*\([^;]*\);"
         )
         LOGGER.debug("extracting insert statement")
         pattern = re.compile(regex_exp, re.IGNORECASE | re.DOTALL)
         insert_statements = pattern.findall(trigger_body)
         LOGGER.debug("insert statements: %s", len(insert_statements))
-        # for match in insert_statements:
-        #     LOGGER.debug("match is %s", match)
-
         return insert_statements
 
-    def fix_sequences(self):
+    def fix_sequences(self) -> None:
+        """
+        Fix the sequences in the database.
+
+        Queries for sequences that are used in triggers, then finds the max
+        value of the sequence column in the table and sets the sequence nextval
+        to be higher than the max value.
+        """
         LOGGER.debug("fixing sequences")
         trig_seq_list = self.get_triggers_with_sequences()
         LOGGER.debug("sequences found: %s", len(trig_seq_list))
         for trig_seq in trig_seq_list:
             trigger_struct = self.get_trigger_body(
-                trig_seq.trigger_name, trig_seq.owner
+                trig_seq.trigger_name,
+                trig_seq.owner,
             )
 
             inserts = self.extract_inserts(
-                trigger_struct["trigger_body"], trigger_struct["table_name"]
+                trigger_struct.trigger_body,
+                trigger_struct.table_name,
             )
             for insert in inserts:
                 sequence_column = self.extract_sequence_column(
-                    insert, trigger_struct["table_name"]
+                    insert,
+                    trigger_struct.table_name,
                 )
                 LOGGER.debug("sequence column %s", sequence_column)
                 insert_statement_table = self.extract_table_name(insert)
@@ -1081,26 +1205,42 @@ class FixOracleSequences:
                 current_max_value = self.get_max_value(
                     table=insert_statement_table,
                     column=sequence_column,
-                    schema=trig_seq["owner"],
+                    schema=trig_seq.owner,
                 )
                 sequence_next_val = self.get_sequence_nextval(
-                    sequence_name=trig_seq["sequence_name"],
-                    sequence_owner=trig_seq["owner"],
+                    sequence_name=trig_seq.sequence_name,
+                    sequence_owner=trig_seq.owner,
                 )
                 LOGGER.debug("max value: %s", current_max_value)
                 LOGGER.debug("sequence nextval: %s", sequence_next_val)
                 if current_max_value > sequence_next_val:
-                    LOGGER.debug(
-                        "fixing sequence: %s", trig_seq["sequence_name"]
-                    )
+                    LOGGER.debug("fixing sequence: %s", trig_seq.sequence_name)
                     self.set_sequence_nextval(
-                        sequence_name=trig_seq["sequence_name"],
-                        sequence_owner=trig_seq["owner"],
+                        sequence_name=trig_seq.sequence_name,
+                        sequence_owner=trig_seq.owner,
                         new_value=current_max_value + 1,
                     )
 
-    def set_sequence_nextval(self, sequence_name, sequence_owner, new_value):
-        query = f"ALTER SEQUENCE {sequence_owner}.{sequence_name} restart start with {new_value}"
+    def set_sequence_nextval(
+        self,
+        sequence_name: str,
+        sequence_owner: str,
+        new_value: str,
+    ) -> None:
+        """
+        Set the nextval for a sequenc to the supplied 'new_value' value.
+
+        :param sequence_name: name of the sequence
+        :type sequence_name: str
+        :param sequence_owner: schema owner of the sequence
+        :type sequence_owner: str
+        :param new_value: the value to set the nextval to
+        :type new_value: str
+        """
+        query = (
+            f"ALTER SEQUENCE {sequence_owner}.{sequence_name} restart start "
+            f"with {new_value}"
+        )
         LOGGER.debug("alter statement: %s", query)
         LOGGER.info(
             "updating the sequence %s to have a nextval of %s",
@@ -1113,18 +1253,50 @@ class FixOracleSequences:
         cur.execute(query)
         self.dbcls.connection.commit()
 
-    def get_sequence_nextval(self, sequence_name, sequence_owner):
-        query = "SELECT last_number + increment_by FROM all_sequences WHERE sequence_name = :sequence_name AND sequence_owner = :sequence_owner"
+    def get_sequence_nextval(
+        self,
+        sequence_name: str,
+        sequence_owner: str,
+    ) -> int:
+        """
+        Get the nextval for a sequence.
+
+        :param sequence_name: name of the sequence
+        :type sequence_name: str
+        :param sequence_owner: owner of the sequence
+        :type sequence_owner: str
+        :return: the next val for the sequence
+        :rtype: int
+        """
+        query = (
+            "SELECT last_number + increment_by FROM all_sequences "
+            "WHERE sequence_name = :sequence_name AND sequence_owner "
+            " = :sequence_owner"
+        )
         LOGGER.debug("query: %s ", query)
         self.dbcls.get_connection()
         cur = self.dbcls.connection.cursor()
         cur.execute(
-            query, sequence_name=sequence_name, sequence_owner=sequence_owner
+            query,
+            sequence_name=sequence_name,
+            sequence_owner=sequence_owner,
         )
         row = cur.fetchone()
         return row[0]
 
-    def get_max_value(self, schema, table, column):
+    def get_max_value(self, schema: str, table: str, column: str) -> int:
+        """
+        Get the largest value in the table colum provided.
+
+        :param schema: schema of the table
+        :type schema: str
+        :param table: the table name
+        :type table: str
+        :param column: the name of the column
+        :type column: str
+        :return: the max value
+        :rtype: int
+        """
         query = f"SELECT MAX({column}) FROM {schema}.{table}"
         self.dbcls.get_connection()
         cur = self.dbcls.connection.cursor()
@@ -1132,27 +1304,54 @@ class FixOracleSequences:
         row = cur.fetchone()
         return row[0]
 
-    def extract_table_name(self, insert_statement):
+    def extract_table_name(self, insert_statement: str) -> str | None:
+        """
+        Extract the table name from the insert statement.
+
+        :param insert_statement: a string with an insert statement
+        :type insert_statement: str
+        :return: the name of the table in the insert statement if one could
+            be extracted, otherwise returns None
+        :rtype: str | None
+        """
         insert_pattern_str = (
             r"INSERT\s+INTO\s+(\w*\.?\w+)\s*\(.*?\)\s*VALUES\s*\(.*?\);"
         )
         insert_pattern = re.compile(
-            insert_pattern_str, re.IGNORECASE | re.DOTALL
+            insert_pattern_str,
+            re.IGNORECASE | re.DOTALL,
         )
         match = insert_pattern.search(insert_statement)
 
         if match:
             table_name = match.group(1)
+            LOGGER.debug("table name from insert statement: %s", table_name)
             return table_name
-        else:
-            return None
+        return None
 
-    def extract_sequence_column(self, insert_statement, table_name):
+    def extract_sequence_column(
+        self,
+        insert_statement: str,
+        table_name: str,
+    ) -> str | None:
+        """
+        Extract the sequence column from the insert statement.
+
+        :param insert_statement: the insert statement
+        :type insert_statement: str
+        :param table_name: table name to extract the sequence column from
+        :type table_name: str
+        :return: the name of the sequence column if one could be extracted.
+        :rtype: str | None
+        """
+        LOGGER.debug("extract the column for the table %s", table_name)
         insert_pattern_str = (
-            rf"INSERT\s+INTO\s+\w*\.?\w+\s*\((.*?)\)\s*VALUES\s*\((.*?)\);"
+            r"INSERT\s+INTO\s+\w*\.?\w+\s*\((.*?)\)\s*VALUES\s*\((.*?)\);"
+            ""
         )
         insert_pattern = re.compile(
-            insert_pattern_str, re.IGNORECASE | re.DOTALL
+            insert_pattern_str,
+            re.IGNORECASE | re.DOTALL,
         )
         insert_match = insert_pattern.search(insert_statement)
         sequence_column = None

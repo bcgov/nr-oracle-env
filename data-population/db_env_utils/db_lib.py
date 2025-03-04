@@ -4,6 +4,7 @@ Abstract base class for database operations.
 
 from __future__ import annotations
 
+import datetime
 import logging
 import os
 import pathlib
@@ -11,10 +12,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import app_paths
 import constants
 import pandas as pd
 import psycopg2
 import psycopg2.sql
+import pyarrow
 import sqlalchemy
 from env_config import ConnectionParameters
 from oracledb.exceptions import DatabaseError as OracleDatabaseError
@@ -75,7 +78,11 @@ class DB(ABC):
         load the data into the database
     """
 
-    def __init__(self, connection_params: ConnectionParameters) -> None:
+    def __init__(
+        self,
+        connection_params: ConnectionParameters,
+        app_paths: app_paths.AppPaths,
+    ) -> None:
         """
         Create a DB Class object.
 
@@ -95,6 +102,7 @@ class DB(ABC):
         self.port = connection_params.port
         self.service_name = connection_params.service_name
         self.schema_2_sync = connection_params.schema_to_sync
+        self.app_paths = app_paths
 
         # if the parameters are not supplied attempt to get them from the
         # environment
@@ -117,6 +125,9 @@ class DB(ABC):
         # methods that implement retries how many times to allow the errors to
         # be caught and retried
         self.max_retries = 10
+
+        # rows to read from the database at a time before write operation
+        self.chunk_size = 25000
 
     @abstractmethod
     def get_connection(self) -> None:
@@ -280,6 +291,42 @@ class DB(ABC):
         """
         raise NotImplementedError
 
+    def get_pyarrow_schema(self, table: sqlalchemy.Table) -> pyarrow.Schema:
+        """
+        Return a pyarrow schema for the table.
+
+        :param table: the table to get the schema for
+        :type table: sqlalchemy.Table
+        :return: a pyarrow schema object
+        :rtype: pyarrow.Schema
+        """
+
+        column_names = [column.name for column in table.columns]
+        column_types = [
+            pyarrow.string()
+            if column.type.python_type == str
+            else pyarrow.int64()
+            if column.type.python_type == int
+            else pyarrow.float64()
+            if column.type.python_type == float
+            else pyarrow.timestamp("s")
+            if column.type.python_type == datetime.datetime
+            else None
+            for column in table.columns
+        ]
+        LOGGER.debug("column names: %s", column_names)
+
+        # Create a PyArrow schema from the column names and data types
+        schema = pyarrow.schema(
+            [
+                (name, typ)
+                for name, typ in zip(column_names, column_types)
+                if typ is not None
+            ]
+        )
+        LOGGER.debug("schema: %s", schema)
+        return schema
+
     @abstractmethod
     def enable_constraints(
         self,
@@ -323,6 +370,8 @@ class DB(ABC):
         LOGGER.debug("export file: %s", export_file)
         if not export_file.exists() or overwrite:
             table_obj = self.get_table_object(table)
+            pyarrow_schema = self.get_pyarrow_schema(table_obj)
+
             select_obj = sqlalchemy.select(table_obj)
 
             if export_file.exists():
@@ -333,13 +382,27 @@ class DB(ABC):
             LOGGER.debug("reading the %s", table)
             self.get_sqlalchemy_engine()
 
-            df_orders = pd.read_sql(select_obj, self.sql_alchemy_engine)
+            itercnt = 1
 
-            LOGGER.debug("writing to parquet file: %s ", export_file)
-            df_orders.to_parquet(
-                export_file,
-                engine="pyarrow",
+            # gets populated once there is some data to define the schema
+            writer = None
+            writer = pyarrow.parquet.ParquetWriter(
+                where=str(export_file),
+                schema=pyarrow_schema,
+                compression="snappy",
             )
+            for chunk in pd.read_sql(
+                select_obj,
+                self.sql_alchemy_engine,
+                chunksize=self.chunk_size,
+            ):
+                LOGGER.debug("writing chunk %s", itercnt * self.chunk_size)
+                table = pyarrow.Table.from_pandas(chunk, schema=pyarrow_schema)
+
+                writer.write_table(table)
+                itercnt += 1
+            writer.close()
+
             file_created = True
         else:
             LOGGER.info("file exists: %s, not re-exporting", export_file)
@@ -491,7 +554,7 @@ class DB(ABC):
         LOGGER.debug("retries: %s", retries)
         for table in table_list:
             spaces = " " * retries * 2
-            import_file = constants.get_default_export_file_path(
+            import_file = self.app_paths.get_default_export_file_path(
                 table,
                 env_str,
                 self.db_type,

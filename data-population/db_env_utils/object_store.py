@@ -9,6 +9,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+import app_paths
 import boto3
 import botocore.exceptions
 import constants
@@ -30,6 +31,7 @@ class OStore:
     def __init__(
         self,
         conn_params: env_config.ObjectStoreParameters,
+        app_paths: app_paths.AppPaths,
     ) -> None:
         """
         Contruct object store wrapper.
@@ -45,6 +47,7 @@ class OStore:
             aws_secret_access_key=self.conn_params.secret,
             endpoint_url=f"https://{self.conn_params.host}",
         )
+        self.app_paths = app_paths
 
     def get_data_files(
         self,
@@ -59,7 +62,7 @@ class OStore:
             pulled
         :type tables: list[str]
         """
-        ostore_dir = constants.get_export_ostore_path(db_type)
+        ostore_dir = self.app_paths.get_export_ostore_path(db_type)
         remote_files = self.s3_client.list_objects(
             Bucket=self.conn_params.bucket,
             Prefix=str(ostore_dir),
@@ -70,16 +73,18 @@ class OStore:
         LOGGER.debug("remote files: %s", remote_file_names)
 
         for table in tables:
-            local_data_file = constants.get_default_export_file_path(
+            local_data_file = self.app_paths.get_default_export_file_path(
                 table,
                 env_str,
                 db_type,
             )
             local_data_file.parent.mkdir(parents=True, exist_ok=True)
             LOGGER.debug("local file: %s", local_data_file)
-            remote_data_file = constants.get_default_export_file_ostore_path(
-                table,
-                db_type,
+            remote_data_file = (
+                self.app_paths.get_default_export_file_ostore_path(
+                    table,
+                    db_type,
+                )
             )
             LOGGER.debug("remote file: %s", remote_data_file)
             # Added logic to use csv if parquet fails... So if the parquet file
@@ -240,14 +245,16 @@ class OStore:
         :type env_str: str
         """
         for table in tables:
-            local_data_file = constants.get_default_export_file_path(
+            local_data_file = self.app_paths.get_default_export_file_path(
                 table,
                 env_str,
                 db_type,
             )
-            remote_data_file = constants.get_default_export_file_ostore_path(
-                table,
-                db_type,
+            remote_data_file = (
+                self.app_paths.get_default_export_file_ostore_path(
+                    table,
+                    db_type,
+                )
             )
             LOGGER.debug("local file: %s", local_data_file)
             LOGGER.debug("remote file: %s", remote_data_file)

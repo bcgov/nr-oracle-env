@@ -72,7 +72,8 @@ class TriggerBodyTable:
     """
 
     trigger_body: str | None
-    trigger_table: str | None
+    table_name: str | None
+    table_owner: str | None
 
 
 @dataclass
