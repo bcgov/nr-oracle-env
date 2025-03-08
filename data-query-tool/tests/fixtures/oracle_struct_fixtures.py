@@ -10,7 +10,7 @@ import pathlib
 import dotenv
 import oracledb
 import pytest
-from data_query_tool import constants, oralib
+from data_query_tool import constants, oralib, oralib2
 
 LOGGER = logging.getLogger(__name__)
 
@@ -29,5 +29,14 @@ def ora_lib_fixture(oracle_params):
     db_cons = constants.get_database_connection_parameters()
     LOGGER.debug("db cons: %s", db_cons)
     ora = oralib.Oracle(db_cons)
+    yield ora
+    ora.connection.close()
+
+
+@pytest.fixture(scope="module")
+def ora_lib2_fixture(oracle_params):
+    db_cons = constants.get_database_connection_parameters()
+    LOGGER.debug("db cons: %s", db_cons)
+    ora = oralib2.Oracle(db_cons)
     yield ora
     ora.connection.close()
