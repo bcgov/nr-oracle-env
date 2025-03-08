@@ -8,7 +8,7 @@ import pathlib
 
 import click
 import packaging.version
-from data_query_tool import constants, migration_files, oralib
+from data_query_tool import constants, migration_files, oralib, oralib2, types
 
 
 def configure_logging() -> logging.Logger:
@@ -30,15 +30,22 @@ def cli() -> None:
     """
     Create a cli object that can be added to for the click interface.
     """
-    pass
+    LOGGER.debug("created a cli objects")
 
 
 @click.command()
 @click.option(
-    "--seed-table",
+    "--seed-object",
     multiple=False,
     required=True,
-    help="Specify the seed table to use to identify dependencies.",
+    help="Specify the seed object to use to identify dependencies.",
+)
+@click.option(
+    "--type",
+    type=click.Choice([otype.name for otype in types.ObjectType]),
+    default="TAB",
+    required=True,
+    help="Specify the object type specified in the seed-object parameter.",
 )
 @click.option(
     "--schema",
@@ -56,12 +63,20 @@ def cli() -> None:
     "  json: Output in JSON format.\n"
     "  text: Output in plain readable text format.",
 )
-def show_deps(seed_table: str, schema: str, out_format: str) -> None:
+def show_deps(
+    seed_object: str,
+    type: str,
+    schema: str,
+    out_format: str,
+) -> None:
     """
-    Show a tables dependencies.
+    Show a table or packages dependencies.
 
-    :param seed_table: name of the seed table to retrieve dependencies for.
-    :type seed_table: str
+    :param seed_object: name of the seed database object to retrieve
+        dependencies for.
+    :type seed_object: str
+    :param type: the database object type.
+    :type seed_package: str
     :param schema: the schema in which the seed table resides.
     :type schema: str
     :param out_format: the output format to use to display the dependencies.
@@ -69,32 +84,39 @@ def show_deps(seed_table: str, schema: str, out_format: str) -> None:
     :type out_format: str
     """
     configure_logging()
-    LOGGER.debug("seed tables: %s", seed_table)
+    LOGGER.debug("seed object: %s", seed_object)
+    LOGGER.debug("seed object type: %s", type)
     LOGGER.debug("schema: %s", schema)
     LOGGER.debug("out_format: %s", out_format)
     LOGGER.info(
         "have patience, working on getting dependencies for the table: %s",
-        seed_table,
+        seed_object,
     )
 
     # get database connection parameters from the environment
     db_cons = constants.get_database_connection_parameters()
-    ora = oralib.Oracle(db_cons)
+    ora = oralib2.Oracle(db_cons)
     # get_related_tables_sa will get all dependencies including other tables
     # that have foreign key constraints to the specified seed table and vise
     # versa.
-    tabs = ora.get_related_tables_sa(
-        table_name=seed_table,
-        schema=schema.upper(),
-    )
+    if type in [otype.name for otype in types.ObjectType]:
+        deps = ora.get_db_object_deps(
+            object_name=seed_object,
+            schema=schema.upper(),
+            object_type=types.ObjectType[type],
+        )
+    else:
+        msg = f"you specified a --type {type} which is not supported."
+        LOGGER.debug(msg)
+        raise ValueError(msg)
 
     if out_format == "text":
-        text = tabs.to_str()
+        text = deps.to_str()
         print(text)  # noqa: T201
     elif out_format == "json":
-        out_dict = tabs.to_dict()
-        tabs_json = json.dumps(out_dict, indent=4)
-        click.echo(tabs_json)
+        out_dict = deps.to_dict()
+        deps_json = json.dumps(out_dict, indent=4)
+        click.echo(deps_json)
 
 
 @click.command()
