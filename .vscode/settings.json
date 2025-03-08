@@ -9,18 +9,23 @@
     },
     //"editor.trimTrailingWhitespace": true,
 
-    // "python.defaultInterpreterPath": "./data-query-tool/.venv/bin/python",
-    // "python.testing.pytestArgs": [
-    //     "./data-query-tool",
-    // ],
-    //"python.envFile": "${workspaceFolder}/data-query-tool/.env",
-
-
-    "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
+    // ****************************************************************
+    //   data-query-tool
+    // ****************************************************************
+    "python.defaultInterpreterPath": "./data-query-tool/.venv/bin/python",
     "python.testing.pytestArgs": [
-        "./data-population"
+        "./data-query-tool",
     ],
-    "python.envFile": "${workspaceFolder}/data-population/.env",
+    "python.envFile": "${workspaceFolder}/data-query-tool/.env",
+
+    // ****************************************************************
+    //   data-population
+    // ****************************************************************
+    // "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
+    // "python.testing.pytestArgs": [
+    //     "./data-population"
+    // ],
+    // "python.envFile": "${workspaceFolder}/data-population/.env",
 
     "[python]": {
         // "editor.defaultFormatter": "ms-python.black-formatter",
@@ -31,7 +36,7 @@
         },
 
     },
-    "isort.args":["--profile", "black"],
+    // "isort.args":["--profile", "black"],
     // "python.formatting.provider": "black",
     "ruff.codeAction.disableRuleComment": {
         "enable": true
@@ -43,21 +48,26 @@
     "ruff.organizeImports": false,
     "autoDocstring.docstringFormat": "sphinx",
     "files.trimTrailingWhitespace": true,
+    // "ruff.args": [
+    //     "--unfixable=F401,D212", "--extend-ignore=D200,D202,D212"
+    // ],
+
     // "ruff.lint.args": [
     //     "--unfixable=F401", "--extend-ignore=D200,D202,D212"
     // ],
     //"ruff.lint.run": "onType",
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "black-formatter.args": [
-        "--line-length=80"
-    ],
+    // "black-formatter.args": [
+    //     "--line-length=80"
+    // ],
     "problems.ignore": [
         "**/junk*"
     ],
     "files.associations": {
         "**/junk*": ""
     },
-
+    "terminal.integrated.scrollback": 10000,
+    "debug.console.maxHistoryItems": 10000,
 }
 

@@ -7,6 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "click>=8.1.7",
     "oracledb>=2.5.0",
+    "python-dotenv>=1.0.1",
     "sql-metadata>=2.15.0",
     "sqlalchemy>=2.0.36",
     "sqlparse>=0.5.3",
@@ -23,6 +24,8 @@ dev = [
 
 [tool.ruff.lint]
 select = ["ALL"]
+extend-select = ["I"]
+
 
 [tool.isort]
 profile = "black"
@@ -32,6 +35,7 @@ include_trailing_comma = true
 [tool.ruff]
 line-length = 80
 select = ["ALL"]
+ignore = ["D200","D202","D212","F401"]
 
 # Ignore some errors in tests as they are not relevant
 [tool.ruff.lint.extend-per-file-ignores]
@@ -44,4 +48,5 @@ select = ["ALL"]
     # The below are debateable
     "PLR2004", # Magic value used in comparison, ...
     "S311", # Standard pseudo-random generators are not suitable for cryptographic purposes
+    "D212", # prefer to put line on next line
 ]
