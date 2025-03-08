@@ -103,13 +103,25 @@ class MigrationFile:
         """
         version = self.extract_version(migration_file=base_migration_file)
 
+        # defining the order in which different object types should be
+        # written
         suffix = ""
         increment_int = 1
-        if migration_type == types.DDLType.PACKAGE:
-            suffix = "_P"
-        elif migration_type == types.DDLType.TRIGGER:
-            suffix = "_T"
+        if migration_type == types.DDLType.DB_OBJ_DDL:
+            suffix = ""
+            increment_int = 1
+        elif migration_type == types.DDLType.DB_TYPES:
+            suffix = "_TYP"
             increment_int = 2
+        elif migration_type == types.DDLType.PACKAGE:
+            suffix = "_PKG"
+            increment_int = 3
+        elif migration_type == types.DDLType.FUNC_PROC:
+            suffix = "_FP"
+            increment_int = 4
+        elif migration_type == types.DDLType.TRIGGER:
+            suffix = "_TRG"
+            increment_int = 5
         if suffix:
             version = self.increment_version(
                 current_version=version,
@@ -327,7 +339,6 @@ class MigrationFile:
             # base migration file for the core DDL
             migration_file = self.get_migration_file()
             for mgr_cache in migration_list:
-
                 # in case we are writing a trigger or package, get the correct
                 # file to write that crap to.
                 cur_mig_file = self.get_migration_file_by_type(

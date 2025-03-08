@@ -126,6 +126,14 @@ class Oracle:
         # migration file.
         self.exported_objects = ExportedObjects()
 
+        # mapping database object types to the methods that will handle
+        # the retrieval of their dependencies
+        self.data_type_handlers = {
+            types.ObjectType.TABLE: self.get_related_tables_sa,
+            types.ObjectType.PACKAGE: self.get_package_deps,
+            types.ObjectType.TRIGGER: self.get_triggers,
+        }
+
     def connect_sa(self) -> None:
         """
         Populate the sqlalchemy connection engine.
@@ -221,7 +229,7 @@ class Oracle:
             existing = []
         self.connect_sa()
         metadata = sqlalchemy.MetaData()
-        LOGGER.debug("current table: %s", table_name)
+        LOGGER.debug("incomming table: %s", table_name)
         table = sqlalchemy.Table(
             table_name.lower(),
             metadata,
@@ -247,6 +255,7 @@ class Oracle:
             related_table = table_schema[1]
             related_schema = table_schema[0]
             LOGGER.debug("related table: %s", related_table)
+            # address self references
             if (
                 related_table.lower() == table_name.lower()
                 and related_schema.lower() == schema.lower()
@@ -259,7 +268,7 @@ class Oracle:
                         dependency_list=[],
                     )
                 )
-
+            # if not a self reference then iterate on the dependency
             elif (related_schema, related_table) not in existing:
                 related_struct.append(
                     self.get_related_tables_sa(
@@ -280,7 +289,7 @@ class Oracle:
         # was passed in
 
         # get trigger deps for the original table
-        LOGGER.debug("table name: %s", table_name)
+
         related_struct.extend(
             self.get_trigger_deps(table_name=table_name, schema=schema),
         )
@@ -290,6 +299,73 @@ class Oracle:
             object_type=types.ObjectType.TABLE,
             dependency_list=related_struct,
         )
+
+    def get_package_deps(
+        self,
+        package_name: str,
+        schema: str,
+        existing: list[tuple[str, str]] | None = None,
+        depth: int = 0,
+    ) -> types.DBDependencyMapping:
+        """
+        Return a hierarchical data structure with table dependencies.
+        """
+        # TODO: tie this into the click interface and add
+        if not existing:
+            existing = []
+        self.connect_sa()
+        metadata = sqlalchemy.MetaData()
+        LOGGER.debug("current package: %s", package_name)
+        query = """
+            SELECT
+            REFERENCED_NAME, REFERENCED_TYPE, REFERENCED_OWNER
+            FROM
+                DBA_DEPENDENCIES
+            WHERE
+                name = :package_name AND
+                owner = :schema AND
+                referenced_name <> :package_name -- don't want SELF reference
+                AND NOT
+                ( REFERENCED_OWNER = 'PUBLIC' AND REFERENCED_NAME = 'DUAL' AND REFERENCED_TYPE = 'SYNONYM' ) AND NOT
+                ( REFERENCED_OWNER = 'MDSYS' AND REFERENCED_NAME = 'SDO_GEOMETRY' AND REFERENCED_TYPE = 'TYPE' ) AND NOT
+                ( REFERENCED_NAME = 'STANDARD' AND REFERENCED_TYPE='PACKAGE' AND REFERENCED_OWNER = 'SYS') AND NOT
+                REFERENCED_TYPE IN ( 'TYPE'  )
+        """
+        cursor = self.connection.cursor()
+        cursor.execute(
+            query,
+            package_name=package_name,
+            schema=schema,
+        )
+        cur_results = cursor.fetchall()
+        deps = []
+        for cur_result in cur_results:
+            LOGGER.debug("cur_result: %s", cur_result)
+            LOGGER.debug("cur_result type: %s", cur_result[1])
+            object_type = types.ObjectType[cur_result[1]]
+            if object_type == types.ObjectType.TABLE:
+                deps.append(
+                    self.get_related_tables_sa(
+                        table_name=cur_result[0],
+                        schema=cur_result[2],
+                    ),
+                )
+            else:
+                LOGGER.debug(
+                    "Skipping dependency %s %s",
+                    cur_result[0],
+                    object_type,
+                )
+                msg = "unknown object type"
+                LOGGER.error("")
+                # raise ValueError(msg)
+        package_deps = types.DBDependencyMapping(
+            object_name=package_name,
+            object_type=types.ObjectType["PACKAGE"],
+            object_schema=schema,
+            dependency_list=deps,
+        )
+        return package_deps
 
     def get_related_tables(
         self,
@@ -479,6 +555,27 @@ class Oracle:
         cursor.close()
         return [ddl_str]
 
+    def get_db_object_deps(
+        self,
+        object_name: str,
+        object_type: types.ObjectType,
+        schema: str,
+        existing: list[tuple[str, str]] | None = None,
+        depth: int = 0,
+    ):
+        if not existing:
+            existing = []
+        LOGGER.debug(
+            "object type: %s  object_name: %s", object_type, object_name
+        )
+        # need to map the object type to a method
+        deps = []
+        try:
+            deps = self.data_type_handlers[object_type]()
+        except KeyError:
+            LOGGER.error("unknown key: %s", object_type)
+        return deps
+
     def get_triggers(
         self,
         table_name: str,
@@ -499,6 +596,7 @@ class Oracle:
             if you want disabled triggers then set this to be true
         :type include_disabled: bool
         """
+        LOGGER.debug("triggers for table: %s", table_name)
         query = """
             SELECT
                 TRIGGER_NAME,
@@ -520,9 +618,14 @@ class Oracle:
         cursor.execute(query, table_name=table_name, schema=schema)
         cur_results = cursor.fetchall()
         # convert into a simple list of trigger names
-        LOGGER.debug("cursor results: %s", cur_results)
+        LOGGER.debug("trigger deps cursor results: %s", cur_results)
         trigger_list = []
         for cur_result in cur_results:
+            LOGGER.debug(
+                "trigger name: %s depends on table %s",
+                cur_result[0],
+                table_name,
+            )
             dep_obj = types.Dependency(
                 object_type=types.ObjectType.TRIGGER,
                 object_name=cur_result[0],
@@ -587,10 +690,15 @@ class Oracle:
                 deps = []
                 # iterating over the trigger dependencies
                 for cur_result in cur_results:
-                    LOGGER.debug("cur_result: %s", cur_result)
-                    LOGGER.debug("cur_result type: %s", cur_result[1])
+                    LOGGER.debug(
+                        "trigger name: %s depends on %s, of type %s",
+                        trigger_name,
+                        cur_result[0],
+                        cur_result[1],
+                    )
                     object_type = types.ObjectType[cur_result[1]]
                     # if its a table then get its dependencies
+                    # TODO: see if we can callback to get_db_object_deps
                     if object_type == types.ObjectType.TABLE:
                         deps.append(
                             self.get_related_tables_sa(
@@ -617,13 +725,24 @@ class Oracle:
                             ),
                         )
                     else:
+                        # deps.append(
+                        #     self.get_db_object_deps(
+                        #         object_name=cur_result[0],
+                        #         object_type=object_type,
+                        #         schema=cur_result[2],
+                        #     ),
+                        # )
                         LOGGER.debug(
-                            "Skipping dependency %s %s",
-                            cur_result[0],
+                            "don't know how to handle object type: %s",
                             object_type,
                         )
-                        msg = "unknown object type"
-                        raise ValueError(msg)
+                        # LOGGER.debug(
+                        #     "Skipping dependency %s %s",
+                        #     cur_result[0],
+                        #     object_type,
+                        # )
+                        # msg = "unknown object type"
+                        # raise ValueError(msg)
 
                 trigger_dep = types.DBDependencyMapping(
                     object_name=trigger_name,
@@ -633,6 +752,17 @@ class Oracle:
                 )
                 dependencies.append(trigger_dep)
         return dependencies
+
+
+"""
+thinking incomming request for dependency would come from get_db_object_deps
+for all object types
+
+object -> get deps -> for each dependency
+  -> add deps returned to
+
+
+"""
 
 
 class ExportedObjects:

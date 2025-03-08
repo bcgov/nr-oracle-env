@@ -44,6 +44,8 @@ class ObjectType(Enum):
     FUNCTION = 5
     SEQUENCE = 6
     PACKAGE = 7
+    SYNONYM = 8
+    TYPE = 9
 
 
 class DDLType(Enum):
@@ -62,6 +64,8 @@ class DDLType(Enum):
     TRIGGER = 1
     PACKAGE = 2
     DB_OBJ_DDL = 3
+    DB_TYPES = 4
+    FUNC_PROC = 5
 
 
 @dataclass
