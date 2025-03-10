@@ -182,3 +182,4 @@ data-population/data/**
 junk.py
 data-population/db_env_utils/junk.py
 data-population/junk_simple_load.py
+project_specific/**
