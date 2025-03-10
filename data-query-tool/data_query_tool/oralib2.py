@@ -84,7 +84,7 @@ class DDLCache:
             be executed.
         :rtype: list[str]
         """
-        all_DDL = []
+        all_DDL = []  # noqa: N806
         ddl_obj = None
         # the order in which the various types of DDL should be dumped.
         ddl_types = [
@@ -103,31 +103,6 @@ class DDLCache:
                     ddl_definition=ddl_list,
                 )
                 all_DDL.append(ddl_obj)
-        # if self.ddl_cache:
-        #     ddl_obj = types.DDLCachedObject(
-        #         ddl_type=types.DDLType.DB_OBJ_DDL,
-        #         ddl_definition=self.ddl_cache,
-        #     )
-        #     all_DDL.append(ddl_obj)
-        # if self.db_types:
-        #     ddl_obj = types.DDLCachedObject(
-        #         ddl_type=types.DDLType.DB_OBJ_DDL,
-        #         ddl_definition=self.ddl_cache,
-        #     )
-        #     all_DDL.append(ddl_obj)
-        # if self.triggers:
-        #     ddl_obj = types.DDLCachedObject(
-        #         ddl_type=types.DDLType.TRIGGER,
-        #         ddl_definition=self.triggers,
-        #     )
-        #     all_DDL.append(ddl_obj)
-        # if self.packages:
-        #     ddl_obj = types.DDLCachedObject(
-        #         ddl_type=types.DDLType.PACKAGE,
-        #         ddl_definition=self.packages,
-        #     )
-        #     all_DDL.append(ddl_obj)
-        # # return self.ddl_cache + self.triggers
         return all_DDL
 
     def merge_caches(self, ddl_cache: "DDLCache") -> None:
@@ -196,6 +171,7 @@ class Oracle:
                 owner = :schema AND
                 referenced_name <> :object_name -- don't want SELF reference
                 AND NOT
+                REFERENCED_OWNER = 'SYS' AND NOT
                 ( REFERENCED_OWNER = 'PUBLIC' AND
                     REFERENCED_TYPE = 'SYNONYM' ) AND NOT
                 ( REFERENCED_OWNER = 'MDSYS' AND
@@ -791,7 +767,10 @@ class Oracle:
             object_schema=db_object.object_schema.upper(),
         )
         ddl_result_cell = cursor.fetchone()
-        ddl_str = ddl_result_cell[0].read() + "\n"
+        if db_object.object_type == types.ObjectType.TYPE:
+            ddl_str = ddl_result_cell[0].read() + ";\n"
+        else:
+            ddl_str = ddl_result_cell[0].read() + "\n"
         LOGGER.debug("ddl for %s is %s", db_object.object_name, ddl_str)
         cursor.close()
         return [ddl_str]

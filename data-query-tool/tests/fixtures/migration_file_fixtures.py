@@ -38,7 +38,7 @@ def migration_file_w_multiple_idx(data_dir) -> pathlib.Path:
 @pytest.fixture(scope="module")
 def migration_file_triggers(data_dir) -> pathlib.Path:
     migration_file = pathlib.Path(
-        data_dir, "test_data", "V1.0.2__first_migration_T.sql"
+        data_dir, "test_data", "V1.0.2__first_migration_TRG.sql"
     )
     yield migration_file
 
@@ -46,6 +46,26 @@ def migration_file_triggers(data_dir) -> pathlib.Path:
 @pytest.fixture(scope="module")
 def migration_file_packages(data_dir) -> pathlib.Path:
     migration_file = pathlib.Path(
-        data_dir, "test_data", "V1.0.1__first_migration_P.sql"
+        data_dir, "test_data", "V1.0.1__first_migration_PKG.sql"
+    )
+    yield migration_file
+
+
+@pytest.fixture(scope="module")
+def migration_file_types(data_dir) -> pathlib.Path:
+    migration_file = pathlib.Path(
+        data_dir,
+        "test_data",
+        "V2.1.2__msd_tmbr_mrk_st_TYP.sql",
+    )
+    yield migration_file
+
+
+@pytest.fixture(scope="module")
+def migration_file_w_view(data_dir) -> pathlib.Path:
+    migration_file = pathlib.Path(
+        data_dir,
+        "test_data",
+        "V1.3.0__msd_tmbr_mrk_st.sql",
     )
     yield migration_file

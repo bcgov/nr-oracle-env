@@ -127,3 +127,15 @@ def test_create_migrations(ora_lib2_fixture):
     )
 
     current_migration_file.write_migrations(migrations_list)
+
+
+def test_get_ddl(type_dependency, ora_lib2_fixture):
+    ddl = ora_lib2_fixture.get_ddl(db_object=type_dependency)
+    LOGGER.debug("ddl: %s", ddl)
+
+    type_dependency.object_name = "BEC_ZONE_CODE"
+    type_dependency.object_type = types.ObjectType.TABLE
+    ddl = ora_lib2_fixture.get_ddl(db_object=type_dependency)
+    LOGGER.debug("ddl: %s", ddl)
+
+    pass
