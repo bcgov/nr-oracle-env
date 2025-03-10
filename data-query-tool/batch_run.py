@@ -1,5 +1,6 @@
-# created this script to be able to support batch runs
-# of migrations
+"""
+Support bach run of dependencies and migrations.
+"""
 
 import json
 import logging.config
@@ -12,18 +13,28 @@ LOGGER = None
 
 
 class BatchRun:
-    def __init__(self):
+    """
+    Batch run dependencies or migrations.
+    """
+
+    def __init__(self) -> None:
+        """
+        Construct a BatchRun object.
+        """
         self.logging_config()
         self.batch_file = pathlib.Path("tablelist.txt")
         self.migration_folder = (
-            pathlib.Path("__file__").parent / "data" / "migrations"
+            pathlib.Path("__file__").parent.parent
+            / "project_specific"
+            / "silva"
+            / "migrations"
         )
         LOGGER.debug("migration path: %s", self.migration_folder)
         self.schema = "THE"
         # force a new major version
-        self.initial_migration_str = "2.0.0"
+        self.initial_migration_str = "1.0.0"
 
-    def logging_config(self):
+    def logging_config(self) -> None:
         """
         Configure the logging for the cli.
         """
@@ -31,10 +42,13 @@ class BatchRun:
         logging.config.fileConfig(log_conf_path)
         logger = logging.getLogger(__name__)
         logger.debug("testing logger config...")
-        global LOGGER
+        global LOGGER  # noqa: PLW0603
         LOGGER = logger
 
-    def run_all(self):
+    def run_all(self) -> None:
+        """
+        Generate migrtations for all the tables in the supplied list.
+        """
         # iterates over each new table creating a new migration
         with self.batch_file.open("r") as f:
             for record in f:
@@ -42,7 +56,14 @@ class BatchRun:
                 table_name = table_name.strip()
                 self.dump_migrations(table_name)
 
-    def dump_migrations(self, seed_table):
+    def dump_migrations(self, seed_table: str) -> None:
+        """
+        Generate a migration file for the seed table.
+
+        :param seed_table: name of the seed table, generates a migration for
+                           for this table and any dependencies it may have.
+        :type seed_table: str
+        """
         LOGGER.debug("seed table: %s", seed_table)
         migration_folder = self.migration_folder
         schema = self.schema.lower()
@@ -63,7 +84,8 @@ class BatchRun:
 
         # create migrations from the table relationship structure
         # no intelligence at the moment, but down the road may want to add the
-        # ability to increment the version number based on the existing migration
+        # ability to increment the version number based on the existing
+        # migration
 
         # get existing migration files
         # extract the tables that are defined in those files
