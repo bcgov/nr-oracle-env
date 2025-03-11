@@ -480,6 +480,7 @@ class DB(ABC):
             self.sql_alchemy_engine.connect() as connection,
             connection.begin(),
         ):
+            LOGGER.debug("loading table %s", table)
             pandas_df.to_sql(
                 table.lower(),
                 self.sql_alchemy_engine,
@@ -487,8 +488,10 @@ class DB(ABC):
                 if_exists="append",
                 index=False,
                 method=method,
+                chunksize=self.chunk_size,
                 # encoding="utf-8",
             )
+            LOGGER.debug("done")
 
         # now verify data
         sql = "Select count(*) from {schema}.{table}"

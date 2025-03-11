@@ -335,6 +335,9 @@ class OracleDatabase(db_lib.DB):
                 purge=purge,
             )
         else:
+            LOGGER.debug(
+                "regular parquet file... passing to super class method"
+            )
             super().load_data(
                 table,
                 import_file,
