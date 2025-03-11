@@ -119,6 +119,7 @@ class OracleDatabase(db_lib.DB):
         creates a sql_alchemy engine.
         """
         if self.sql_alchemy_engine is None:
+            # utf8mb4 AL32UTF8
             dsn = f"oracle+oracledb://{self.username}:{self.password}@{self.host}:{self.port}/?service_name={self.service_name}"
             self.sql_alchemy_engine = sqlalchemy.create_engine(
                 dsn,
@@ -1346,8 +1347,7 @@ class FixOracleSequences:
         """
         LOGGER.debug("extract the column for the table %s", table_name)
         insert_pattern_str = (
-            r"INSERT\s+INTO\s+\w*\.?\w+\s*\((.*?)\)\s*VALUES\s*\((.*?)\);"
-            ""
+            r"INSERT\s+INTO\s+\w*\.?\w+\s*\((.*?)\)\s*VALUES\s*\((.*?)\);" ""
         )
         insert_pattern = re.compile(
             insert_pattern_str,
