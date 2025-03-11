@@ -22,7 +22,7 @@ uv run main.py show-deps --help
 Usage: main.py show-deps [OPTIONS]
 
 Options:
-  --seed-table TEXT         Specify the seed table to use to identify
+  --seed-object TEXT         Specify the seed table to use to identify
                             dependencies.  [required]
   --schema TEXT             Specify the schema to use to identify
                             dependencies.
@@ -45,7 +45,7 @@ uv run main.py create-migrations --help
 Usage: main.py create-migrations [OPTIONS]
 
 Options:
-  --seed-table TEXT         Specify the seed table to use to identify
+  --seed-object TEXT         Specify the seed table to use to identify
                             dependencies.  [required]
   --schema TEXT             Specify the schema to use to identify
                             dependencies.

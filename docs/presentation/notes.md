@@ -18,11 +18,11 @@
 
 ### Get deps for
 
-`uv run main.py show-deps --seed-table SEEDLOT --schema THE`
+`uv run main.py show-deps --seed-object SEEDLOT --schema THE`
 
 ### Get deps in json format
 
-`uv run main.py show-deps --seed-table SEEDLOT --schema THE --out-format json`
+`uv run main.py show-deps --seed-object SEEDLOT --schema THE --out-format json`
 
 ## Generate migration
 
@@ -34,7 +34,7 @@
 ```
 uv run main.py \
 create-migrations \
---seed-table SEED_PLAN_ZONE \
+--seed-object SEED_PLAN_ZONE \
 --schema THE \
 --migration-name seed_plan_zone \
 --migration-folder .data//migrations-demo2
