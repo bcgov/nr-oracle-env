@@ -75,8 +75,30 @@
             "python": "${workspaceFolder}/data-query-tool/.venv/bin/python",
             "args": [
                 "show-deps",
-                "--seed-table",
-                "ACTIVITY_TREATMENT_UNIT",
+                "--seed-object",
+                "HARVESTING_AUTHORITY",
+                "--type",
+                "TAB",
+                "--schema",
+                "THE"
+            ]
+        },
+        {
+            "name": "main_get_dependencies_PKG",
+            "type": "debugpy",
+            "redirectOutput": false ,
+            "request": "launch",
+            "cwd": "${workspaceFolder}/data-query-tool",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/data-query-tool/.venv/bin/python",
+            "args": [
+                "show-deps",
+                "--seed-object",
+                "MSD_TIMBER_MARK_SITES",
+                "--type",
+                "PKG",
                 "--schema",
                 "THE"
             ]

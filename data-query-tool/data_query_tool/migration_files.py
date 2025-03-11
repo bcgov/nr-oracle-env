@@ -103,13 +103,25 @@ class MigrationFile:
         """
         version = self.extract_version(migration_file=base_migration_file)
 
+        # defining the order in which different object types should be
+        # written
         suffix = ""
         increment_int = 1
-        if migration_type == types.DDLType.PACKAGE:
-            suffix = "_P"
-        elif migration_type == types.DDLType.TRIGGER:
-            suffix = "_T"
+        if migration_type == types.DDLType.DB_OBJ_DDL:
+            suffix = ""
+            increment_int = 1
+        elif migration_type == types.DDLType.DB_TYPES:
+            suffix = "_TYP"
             increment_int = 2
+        elif migration_type == types.DDLType.PACKAGE:
+            suffix = "_PKG"
+            increment_int = 3
+        elif migration_type == types.DDLType.FUNC_PROC:
+            suffix = "_FP"
+            increment_int = 4
+        elif migration_type == types.DDLType.TRIGGER:
+            suffix = "_TRG"
+            increment_int = 5
         if suffix:
             version = self.increment_version(
                 current_version=version,
@@ -210,8 +222,8 @@ class MigrationFile:
         """
         return self.get_migration_file_with_suffix(
             current_migration_file=current_migration_file,
-            migration_suffix="_T",
-            increment=2,
+            migration_suffix="_TRG",
+            increment=4,
         )
 
     def get_package_migration_file(
@@ -327,7 +339,6 @@ class MigrationFile:
             # base migration file for the core DDL
             migration_file = self.get_migration_file()
             for mgr_cache in migration_list:
-
                 # in case we are writing a trigger or package, get the correct
                 # file to write that crap to.
                 cur_mig_file = self.get_migration_file_by_type(
@@ -422,6 +433,14 @@ class MigrationFileParser:
         self.migration_file = migration_file
         self.get_migration_type()
 
+        # mapping the type of migration file to a parse method
+        self.handler_method = {
+            types.DDLType.TRIGGER: self.get_dependency_trigger,
+            types.DDLType.PACKAGE: self.get_dependency_package,
+            types.DDLType.FUNC_PROC: self.get_dependency_db_obj_ddl,
+            types.DDLType.DB_OBJ_DDL: self.get_dependency_db_obj_ddl,
+        }
+
     def get_migration_type(self) -> types.DDLType:
         """
         Get the type of migration file.
@@ -438,10 +457,12 @@ class MigrationFileParser:
             file name.
         :rtype: types.DDLType
         """
-        if self.migration_file.stem.endswith("_T"):
+        if self.migration_file.stem.endswith("_TRG"):
             return types.DDLType.TRIGGER
-        if self.migration_file.stem.endswith("_P"):
+        elif self.migration_file.stem.endswith("_PKG"):
             return types.DDLType.PACKAGE
+        elif self.migration_file.stem.endswith("_FP"):
+            return types.DDLType.FUNC_PROC
         return types.DDLType.DB_OBJ_DDL
 
     def get_dependency(self) -> list[types.Dependency]:
@@ -469,15 +490,13 @@ class MigrationFileParser:
         :rtype: list[types.Dependency]
         """
         migration_type = self.get_migration_type()
-        if migration_type == types.DDLType.TRIGGER:
-            return self.get_dependency_trigger()
-        if migration_type == types.DDLType.PACKAGE:
-            return self.get_dependency_package()
-        if migration_type == types.DDLType.DB_OBJ_DDL:
-            return self.get_dependency_db_obj_ddl()
-        # if we get here then we have a migration type that is not recognized
-        msg = f"migration type: {migration_type} not recognized"
-        raise ValueError(msg)
+        if migration_type not in self.handler_method:
+            msg = f"migration type: {migration_type} not recognized"
+            raise ValueError(msg)
+
+        migration_parse_method = self.handler_method[migration_type]
+        # parsed_struct = migration_parse_method()
+        return migration_parse_method()
 
     def get_dependency_package(self) -> list[types.Dependency]:
         """
@@ -618,7 +637,9 @@ class MigrationFileParser:
                 for token in parsed[0].tokens:
                     LOGGER.debug("token: %s", token)
                     LOGGER.debug("token.ttype: %s", token.ttype)
-                    if token.ttype == search_stack_ttypes[cur_idx][0]:
+                    if token.ttype == search_stack_ttypes[cur_idx][
+                        0
+                    ] and token.normalized not in ["EDITIONABLE", "FORCE"]:
                         LOGGER.debug("DDL token: %s", token)
                         data_dict[search_stack_ttypes[cur_idx][1]] = getattr(
                             token,

@@ -487,6 +487,7 @@ class DB(ABC):
                 if_exists="append",
                 index=False,
                 method=method,
+                # encoding="utf-8",
             )
 
         # now verify data

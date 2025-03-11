@@ -4,6 +4,7 @@ ignore = [
     # Relax the convention by _not_ requiring documentation for every function parameter.
     "D200","D202","D212","ICN001"
 ]
+extend-select = ["I"]
 
 
 [tool.ruff]

@@ -85,7 +85,7 @@ Install uv
     In the example below we are retrieving the dependencies for the 'SEEDLOT'
     table.
 
-    `uv run main.py show-deps --seed-table SEEDLOT`
+    `uv run main.py show-deps --seed-object SEEDLOT`
 
     Creates a text based view of the SEEDLOT dependencies.  Sample of the
     output:

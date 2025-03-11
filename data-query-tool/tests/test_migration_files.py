@@ -225,3 +225,25 @@ def test_get_migration_type(
     mg_file = migration_files.MigrationFileParser(migration_file_w_multiple_idx)
     mg_type = mg_file.get_migration_type()
     assert mg_type == types.DDLType.DB_OBJ_DDL
+
+
+def test_get_dependency_types(migration_file_types):
+    mg_file = migration_files.MigrationFileParser(migration_file_types)
+    mg_type = mg_file.get_migration_type()
+    LOGGER.debug("migration file type: %s", mg_type)
+    # DDLType.DB_OBJ_DDL
+    # assert mg_type == types.DDLType.DB_TYPES
+
+    deps = mg_file.get_dependency()
+    LOGGER.debug("deps: %s", deps)
+
+
+def test_get_dependency_views(migration_file_w_view):
+    mg_file = migration_files.MigrationFileParser(migration_file_w_view)
+    mg_type = mg_file.get_migration_type()
+    LOGGER.debug("migration file type: %s", mg_type)
+    # DDLType.DB_OBJ_DDL
+    # assert mg_type == types.DDLType.DB_TYPES
+
+    deps = mg_file.get_dependency()
+    LOGGER.debug("deps: %s", deps)
