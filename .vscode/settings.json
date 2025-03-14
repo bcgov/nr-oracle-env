@@ -12,20 +12,20 @@
     // ****************************************************************
     //   data-query-tool
     // ****************************************************************
-    "python.defaultInterpreterPath": "./data-query-tool/.venv/bin/python",
-    "python.testing.pytestArgs": [
-        "./data-query-tool",
-    ],
-    "python.envFile": "${workspaceFolder}/data-query-tool/.env",
+    // "python.defaultInterpreterPath": "./data-query-tool/.venv/bin/python",
+    // "python.testing.pytestArgs": [
+    //     "./data-query-tool",
+    // ],
+    // "python.envFile": "${workspaceFolder}/data-query-tool/.env",
 
     // ****************************************************************
     //   data-population
     // ****************************************************************
-    // "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
-    // "python.testing.pytestArgs": [
-    //     "./data-population"
-    // ],
-    // "python.envFile": "${workspaceFolder}/data-population/.env",
+    "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
+    "python.testing.pytestArgs": [
+        "./data-population"
+    ],
+    "python.envFile": "${workspaceFolder}/data-population/.env",
 
     "[python]": {
         // "editor.defaultFormatter": "ms-python.black-formatter",
