@@ -5,6 +5,7 @@
     "version": "0.2.0",
     "configurations": [
 
+
         {
             "name": "Python: Debug Pytest",
             "type": "python",
@@ -161,6 +162,20 @@
             "args": [
                 "ORA",
                 "TEST",
+            ]
+        },
+        {
+            "name": "data_extract_ORA_PROD",
+            "type": "debugpy",
+            "redirectOutput": false ,
+            "request": "launch",
+            "program": "data-population/db_env_utils/main_extract.py",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/data-population/.env",
+            "python": "${workspaceFolder}/data-population/.venv/bin/python",
+            "args": [
+                "ORA",
+                "PROD",
             ]
         },
         {
