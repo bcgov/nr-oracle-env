@@ -17,18 +17,14 @@ class BatchRun:
     Batch run dependencies or migrations.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, migration_folder, table_list_file) -> None:
         """
         Construct a BatchRun object.
         """
         self.logging_config()
-        self.batch_file = pathlib.Path("tablelist.txt")
-        self.migration_folder = (
-            pathlib.Path("__file__").parent.parent
-            / "project_specific"
-            / "silva"
-            / "migrations"
-        )
+        self.batch_file = table_list_file
+        self.migration_folder = migration_folder
+
         LOGGER.debug("migration path: %s", self.migration_folder)
         self.schema = "THE"
         # force a new major version
@@ -72,11 +68,6 @@ class BatchRun:
 
         migration_name = seed_table.lower()
 
-        if not migration_folder:
-            migration_folder = (
-                pathlib.Path(__file__).parent / "data" / "migrations"
-            )
-
         db_cons = constants.get_database_connection_parameters()
         LOGGER.debug("db_cons: %s", db_cons)
         ora = oralib.Oracle(db_cons)
@@ -110,9 +101,9 @@ class BatchRun:
             db_objects = migration_file_parser.get_dependency()
             LOGGER.debug("db objects: %s", db_objects)
             ora.exported_objects.add_objects(db_objects)
+
         # add the existing tables to the ora object so that it doesn't generate
         # duplicate migrations
-
         ddl_cache = ora.create_migrations(
             tabs,
         )
@@ -123,5 +114,28 @@ class BatchRun:
 
 
 if __name__ == "__main__":
-    batchrun = BatchRun()
+    # config:
+    migration_folder = (
+        pathlib.Path("__file__").parent
+        / ".."
+        / "project_specific"
+        / "silva"
+        / "migrations"
+    )
+
+    batch_table_2_run = (
+        pathlib.Path("__file__").parent
+        / ".."
+        / "project_specific"
+        / "silva"
+        / "misc"
+        / "tablelist.txt"
+    )
+    print("table_list", batch_table_2_run)
+    print("migration foler", migration_folder)
+    # raise
+    batchrun = BatchRun(
+        migration_folder=migration_folder,
+        table_list_file=batch_table_2_run,
+    )
     batchrun.run_all()
