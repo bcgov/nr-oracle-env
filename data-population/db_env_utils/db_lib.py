@@ -127,7 +127,7 @@ class DB(ABC):
         self.max_retries = 10
 
         # rows to read from the database at a time before write operation
-        self.chunk_size = 25000
+        self.chunk_size = 10000
 
     @abstractmethod
     def get_connection(self) -> None:
@@ -462,10 +462,6 @@ class DB(ABC):
         """
         # debugging to view the data before it gets loaded
         LOGGER.debug("input parquet file to load: %s", import_file)
-        LOGGER.debug("reading parquet file, %s", import_file)
-        pandas_df = pd.read_parquet(import_file)
-        LOGGER.debug("done loading dataframe.")
-
         LOGGER.debug("table: %s", table)
 
         self.get_sqlalchemy_engine()
@@ -480,18 +476,46 @@ class DB(ABC):
             self.sql_alchemy_engine.connect() as connection,
             connection.begin(),
         ):
-            LOGGER.debug("loading table %s", table)
-            pandas_df.to_sql(
-                table.lower(),
-                self.sql_alchemy_engine,
-                schema=self.schema_2_sync,
-                if_exists="append",
-                index=False,
-                method=method,
-                chunksize=self.chunk_size,
-                # encoding="utf-8",
-            )
-            LOGGER.debug("done")
+            LOGGER.debug("reading parquet file, %s", import_file)
+            parquet_reader = pyarrow.parquet.ParquetFile(import_file)
+            iter_cnt = 1
+
+            for batch in parquet_reader.iter_batches(
+                batch_size=self.chunk_size
+            ):
+                end_row_cnt = iter_cnt * self.chunk_size
+                start_row_cnt = end_row_cnt - self.chunk_size
+                LOGGER.debug(
+                    "writing rows from %s to %s", start_row_cnt, end_row_cnt
+                )
+                df = batch.to_pandas()
+                df.to_sql(
+                    table.lower(),
+                    self.sql_alchemy_engine,
+                    schema=self.schema_2_sync,
+                    if_exists="append",
+                    index=False,
+                    method=method,
+                    # encoding="utf-8",
+                )
+                iter_cnt += 1
+
+            # pandas_df = pd.read_parquet(import_file)
+
+            # LOGGER.debug("done loading dataframe.")
+
+            # LOGGER.debug("loading table %s", table)
+            # pandas_df.to_sql(
+            #     table.lower(),
+            #     self.sql_alchemy_engine,
+            #     schema=self.schema_2_sync,
+            #     if_exists="append",
+            #     index=False,
+            #     method=method,
+            #     chunksize=self.chunk_size,
+            #     # encoding="utf-8",
+            # )
+            # LOGGER.debug("done")
 
         # now verify data
         sql = "Select count(*) from {schema}.{table}"
