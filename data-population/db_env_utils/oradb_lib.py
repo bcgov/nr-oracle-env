@@ -697,6 +697,32 @@ class OracleDatabase(db_lib.DB):
         LOGGER.debug("sdo_geometry cols: %s", sdo_geometry)
         return [row[0] for row in sdo_geometry]
 
+    def get_blob_columns(self, table_name: str) -> list[str]:
+        self.get_connection()
+        cursor = self.connection.cursor()
+        query = """
+        SELECT
+            column_name
+        FROM
+            all_tab_columns
+        WHERE
+            --user_generated = 'YES' AND
+            data_type = 'BLOB' AND
+            table_name = :table_name AND
+            owner = :schema_name
+        """
+        LOGGER.debug("query: %s", query)
+        LOGGER.debug("table_name: %s", table_name)
+        schema_name = self.schema_2_sync
+        cursor.execute(
+            query,
+            table_name=table_name,
+            schema_name=schema_name.upper(),
+        )
+        blob_cols = cursor.fetchall()
+        LOGGER.debug("blob_cols: %s", blob_cols)
+        return [row[0] for row in blob_cols]
+
     def has_sdo_geometry(self, table_name: str) -> bool:
         """
         Check if the table has a SDO_GEOMETRY column.
@@ -716,6 +742,17 @@ class OracleDatabase(db_lib.DB):
         cursor.execute(query, table_name=table_name)
         sdo_geometry = cursor.fetchone()
         return sdo_geometry is not None
+
+    def has_blob(self, table_name: str) -> bool:
+        self.get_connection()
+        cursor = self.connection.cursor()
+        query = """
+        SELECT column_name FROM all_tab_columns
+        WHERE table_name = :table_name AND data_type = 'BLOB'
+        """
+        cursor.execute(query, table_name=table_name)
+        blob_field = cursor.fetchone()
+        return blob_field is not None
 
     def get_column_list(self, table: str) -> list[str]:
         """
@@ -778,6 +815,26 @@ class OracleDatabase(db_lib.DB):
         # to patch the query to handle sdo data.
         query = (
             f"SELECT {', '.join(column_with_wkb_func)} from "
+            f"{self.schema_2_sync}.{table}"
+        )
+        LOGGER.debug("sdo query: %s", query)
+        return query
+
+    def generate_blob_query(self, table: str) -> str:
+        column_list = self.get_column_list(table)
+        blob_columns = self.get_blob_columns(table)
+        columns_with_blob_func = []
+        for column in column_list:
+            if column in blob_columns:
+                columns_with_blob_func.append(
+                    f"EMPTY_BLOB() AS {column}",
+                )
+            else:
+                columns_with_blob_func.append(column)
+        # Could use the approach used in the extract_data_illegal_year method
+        # to patch the query to handle sdo data.
+        query = (
+            f"SELECT {', '.join(columns_with_blob_func)} from "
             f"{self.schema_2_sync}.{table}"
         )
         LOGGER.debug("sdo query: %s", query)
@@ -867,6 +924,61 @@ class OracleDatabase(db_lib.DB):
         writer.close()
         return True
 
+    def extract_data_blob(
+        self,
+        table: str,
+        export_file: pathlib.Path,
+        *,
+        overwrite: bool = False,
+    ) -> bool:
+        column_list = self.get_column_list(table)
+        blob_columns = self.get_blob_columns(table)
+        if len(blob_columns) > 1:
+            msg = "only one blob column is supported"
+            raise ValueError(msg)
+        spatial_col = blob_columns[0]
+
+        LOGGER.debug("column list: %s", column_list)
+        query = self.generate_blob_query(table)
+        LOGGER.debug("spatial query: %s", query)
+        self.get_sqlalchemy_engine()
+
+        writer = None
+
+        chunk_size = 25000  # 25000  # number of rows to include in a chunk
+        itercnt = 1
+        for chunk in pd.read_sql(
+            query,
+            self.sql_alchemy_engine,
+            chunksize=chunk_size,
+        ):
+            table = pyarrow.Table.from_pandas(chunk)
+            if itercnt == 1:
+                # after first chunk is read, convert it to a pyarrow table and
+                # use that as the schema for the stream writer.
+                LOGGER.debug(
+                    "first chunk has been read, rows: %s",
+                    len(chunk),
+                )
+                writer = pyarrow.parquet.ParquetWriter(
+                    str(export_file),
+                    table.schema,
+                    compression="snappy",
+                )
+                itercnt += 1
+                writer.write_table(table)
+                continue
+            LOGGER.debug(
+                "read chunk:%s chunks read: %s",
+                chunk_size,
+                chunk_size + itercnt,
+            )
+            LOGGER.debug("    writing chunk to parquet file...")
+            writer.write_table(table)
+            itercnt += 1
+        writer.close()
+        return True
+
     def df_to_gdf(self, df: pd.DataFrame, spatial_col: str) -> gpd.GeoDataFrame:
         """
         Convert a pandas DataFrame to a geopandas GeoDataFrame.
@@ -938,6 +1050,15 @@ class OracleDatabase(db_lib.DB):
                 export_file=export_file,
                 overwrite=overwrite,
             )
+        elif self.has_blob(table):
+            LOGGER.info("table %s has a field with BLOB type", table)
+            LOGGER.info("using the oracle specific BLOB extractor")
+            file_created = self.extract_data_blob(
+                table=table,
+                export_file=export_file,
+                overwrite=overwrite,
+            )
+
         else:
             try:
                 file_created = super().extract_data(
