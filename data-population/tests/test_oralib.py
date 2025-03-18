@@ -286,8 +286,9 @@ def test_opening_attachement_load(db_connection_fixture):
     # ora.ora_cur_arraysize = 5
     # ora.chunk_size = 5
     # THE.OPENING_ATTACHMENT
-    table = "OPENING_ATTACHMENT"
-    parquet_file = "/home/kjnether/fsa_proj/nr-fsa-orastruct/data-population/data/PROD/ORA/OPENING_ATTACHMENT.parquet"
+    # HARVESTING_AUTHORITY PROV_FOREST_USE HAULING_AUTHORITY
+    table = "HARVESTING_AUTHORITY"
+    parquet_file = f"/home/kjnether/fsa_proj/nr-fsa-orastruct/data-population/data/PROD/ORA/{table}.parquet"
     ora.load_data_with_raw_blobby(
         table=table, import_file=parquet_file, purge=True
     )

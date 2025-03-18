@@ -1750,24 +1750,23 @@ class DataFrameFast(pd.DataFrame):
         LOGGER.debug("columns: %s", list(self.columns))
 
         cols = [self.index.name] * index + list(self.columns)
-        vals = ", ".join([f":{cnt}" for cnt in range(1, len(cols) + 1)])
         blob_cols = [col.upper() for col in blob_cols]
 
         LOGGER.debug("columns: %s", list(self.columns))
 
-        if blob_cols:
-            blob_cols = [col.upper() for col in blob_cols]
-            vals = []
-            for column in self.columns:
-                if column.upper() in blob_cols:
-                    vals.append("EMPTY_BLOB()")
-                    self.drop(column, axis=1, inplace=True)
-                else:
-                    vals.append(f":{column}")
-        LOGGER.debug("vals: %s", vals)
+        insert_placeholders = []
+        blob_cols = [col.upper() for col in blob_cols]
+        for column in self.columns:
+            if column.upper() in blob_cols:
+                insert_placeholders.append("EMPTY_BLOB()")
+                self.drop(column, axis=1, inplace=True)
+            else:
+                insert_placeholders.append(f":{column}")
+        LOGGER.debug("insert_placeholders: %s", insert_placeholders)
 
         cmd = (
-            f"INSERT INTO {name} ({', '.join(cols)}) VALUES ({', '.join(vals)})"  # noqa: S608
+            f"INSERT INTO {name} ({', '.join(cols)}) VALUES "  # noqa: S608
+            f"({', '.join(insert_placeholders)})"
         )
         LOGGER.debug("cmd: %s", cmd)
 

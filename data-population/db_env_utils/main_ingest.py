@@ -67,7 +67,7 @@ LOGGER = logging.getLogger(__name__)
     is_flag=True,
     help="Purge the database and reload with fresh data",
 )
-def main(dest, environment, purge):
+def main(dest, environment, purge) -> None:
     """
     Load the data from object store cache to local oracle database.
 
