@@ -21,7 +21,6 @@ import logging.config
 import re
 from typing import TYPE_CHECKING
 
-import app_paths
 import constants
 import db_lib
 import env_config
@@ -33,11 +32,15 @@ import pyarrow
 import pyarrow.parquet
 import shapely.wkt
 import sqlalchemy
+import sqlalchemy.types
 from env_config import ConnectionParameters
 from oracledb.exceptions import DatabaseError
 
 if TYPE_CHECKING:
     import pathlib
+
+    import app_paths
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -102,6 +105,25 @@ class OracleDatabase(db_lib.DB):
                 service_name=self.service_name,
             )
             LOGGER.debug("connected to database")
+
+    def has_raw_columns(self, table_name: str) -> bool:
+        """
+        Identify if table has any columns of type RAW.
+
+        :param table_name: input table
+        :type table_name: str
+        :return: boolean that indicates if the table has any raw columns in it.
+        :rtype: bool
+        """
+        self.get_connection()
+        cursor = self.connection.cursor()
+        query = """
+        SELECT column_name FROM all_tab_columns
+        WHERE table_name = :table_name AND data_type = 'RAW'
+        """
+        cursor.execute(query, table_name=table_name)
+        blob_field = cursor.fetchone()
+        return blob_field is not None
 
     def populate_db_type(self) -> None:
         """
@@ -225,7 +247,7 @@ class OracleDatabase(db_lib.DB):
         table: str,
         import_file: pathlib.Path,
         *,
-        purge: bool = False,
+        purge: bool = False,  # noqa: ARG002
     ) -> None:
         """
         Load data from a geoparquet file.
@@ -272,7 +294,7 @@ class OracleDatabase(db_lib.DB):
         insert_stmt = f"""
             INSERT INTO {self.schema_2_sync}.{table} ({columns_string})
             VALUES ({column_value_str})
-        """
+        """  # noqa: S608
         LOGGER.debug("statement: %s", insert_stmt)
         for index, row in gdf.iterrows():
             data_dict = {}
@@ -334,9 +356,15 @@ class OracleDatabase(db_lib.DB):
                 import_file=import_file,
                 purge=purge,
             )
+        elif self.has_raw_columns(table) or self.has_blob(table):
+            self.load_data_with_raw_blobby(
+                table=table,
+                import_file=import_file,
+                purge=purge,
+            )
         else:
             LOGGER.debug(
-                "regular parquet file... passing to super class method"
+                "regular parquet file... passing to super class method",
             )
             super().load_data(
                 table,
@@ -698,6 +726,14 @@ class OracleDatabase(db_lib.DB):
         return [row[0] for row in sdo_geometry]
 
     def get_blob_columns(self, table_name: str) -> list[str]:
+        """
+        Return list of columns in the table that are defined as BLOB.
+
+        :param table_name: input table
+        :type table_name: str
+        :return: list of columns from the database that are defined as BLOB's.
+        :rtype: list[str]
+        """
         self.get_connection()
         cursor = self.connection.cursor()
         query = """
@@ -723,6 +759,41 @@ class OracleDatabase(db_lib.DB):
         LOGGER.debug("blob_cols: %s", blob_cols)
         return [row[0] for row in blob_cols]
 
+    def get_raw_columns(self, table_name: str) -> list[str]:
+        """
+        Return a list of columns defined as RAW.
+
+        :param table_name: input table name
+        :type table_name: str
+        :return: list of columns that are defined as RAW in the database.
+        :rtype: list[str]
+        """
+        self.get_connection()
+        cursor = self.connection.cursor()
+        query = """
+        SELECT
+            column_name
+        FROM
+            all_tab_columns
+        WHERE
+            data_type = 'RAW' AND
+            table_name = :table_name AND
+            owner = :schema_name
+        """
+        LOGGER.debug("query: %s", query)
+        LOGGER.debug("table_name: %s", table_name)
+        schema_name = self.schema_2_sync
+        cursor.execute(
+            query,
+            table_name=table_name,
+            schema_name=schema_name.upper(),
+        )
+
+        raw_cols = cursor.fetchall()
+
+        LOGGER.debug("raw_cols: %s", raw_cols)
+        return [row[0] for row in raw_cols]
+
     def has_sdo_geometry(self, table_name: str) -> bool:
         """
         Check if the table has a SDO_GEOMETRY column.
@@ -744,6 +815,15 @@ class OracleDatabase(db_lib.DB):
         return sdo_geometry is not None
 
     def has_blob(self, table_name: str) -> bool:
+        """
+        Identify if the table has any columns of type BLOB.
+
+        :param table_name: input table name
+        :type table_name: str
+        :return: boolean that indicates if the table has any BLOB defined
+                 columns
+        :rtype: bool
+        """
         self.get_connection()
         cursor = self.connection.cursor()
         query = """
@@ -814,13 +894,22 @@ class OracleDatabase(db_lib.DB):
         # Could use the approach used in the extract_data_illegal_year method
         # to patch the query to handle sdo data.
         query = (
-            f"SELECT {', '.join(column_with_wkb_func)} from "
+            f"SELECT {', '.join(column_with_wkb_func)} from "  # noqa: S608
             f"{self.schema_2_sync}.{table}"
         )
         LOGGER.debug("sdo query: %s", query)
         return query
 
     def generate_blob_query(self, table: str) -> str:
+        """
+        Return SQL that masks BLOBS using EMPTY_BLOB().
+
+        :param table: Input table name.
+        :type table: str
+        :return: SQL that will return all the columns in the table, but for
+                 any columns defined as BLOB, the data will be removed.
+        :rtype: str
+        """
         column_list = self.get_column_list(table)
         blob_columns = self.get_blob_columns(table)
         columns_with_blob_func = []
@@ -834,7 +923,7 @@ class OracleDatabase(db_lib.DB):
         # Could use the approach used in the extract_data_illegal_year method
         # to patch the query to handle sdo data.
         query = (
-            f"SELECT {', '.join(columns_with_blob_func)} from "
+            f"SELECT {', '.join(columns_with_blob_func)} from "  # noqa: S608
             f"{self.schema_2_sync}.{table}"
         )
         LOGGER.debug("sdo query: %s", query)
@@ -855,6 +944,7 @@ class OracleDatabase(db_lib.DB):
             self.db_type,
             overwrite=overwrite,
         )
+        LOGGER.debug("temp parquet file: %s", temp_parquet_file)
         return temp_parquet_file
 
     def extract_data_sdogeometry(
@@ -862,7 +952,7 @@ class OracleDatabase(db_lib.DB):
         table: str,
         export_file: pathlib.Path,
         *,
-        overwrite: bool = False,
+        overwrite: bool = False,  # noqa: ARG002
     ) -> bool:
         """
         Extract data from a table that contains SDO_GEOMETRY columns.
@@ -901,7 +991,8 @@ class OracleDatabase(db_lib.DB):
                 # after first chunk is read, convert it to a pyarrow table and
                 # use that as the schema for the stream writer.
                 LOGGER.debug(
-                    "first chunk has been read, rows: %s", len(chunk_size)
+                    "first chunk has been read, rows: %s",
+                    len(chunk_size),
                 )
                 table = self.df_to_gdf(chunk, spatial_col)
                 writer = pyarrow.parquet.ParquetWriter(
@@ -929,14 +1020,31 @@ class OracleDatabase(db_lib.DB):
         table: str,
         export_file: pathlib.Path,
         *,
-        overwrite: bool = False,
+        overwrite: bool = False,  # noqa: ARG002
     ) -> bool:
+        """
+        Write table with BLOB data to parquet file.
+
+        The query that is used by this method will mask out any of the BLOB data
+        with the function EMPTY_BLOB as we do not require any of the BLOB data
+        in the downstream env used by this tool, atm.
+
+        :param table: Input table name
+        :type table: str
+        :param export_file: The path to the parquet file
+        :type export_file: pathlib.Path
+        :param overwrite: identify if we want to overwrite existing files
+        :type overwrite: bool, optional
+        :raises ValueError: error is raised if no BLOB columns are found in the
+            table, as a different method should be used in these circumstances.
+        :return: a boolean that indicates that the dump succeeded.
+        :rtype: bool
+        """
         column_list = self.get_column_list(table)
         blob_columns = self.get_blob_columns(table)
         if len(blob_columns) > 1:
             msg = "only one blob column is supported"
             raise ValueError(msg)
-        spatial_col = blob_columns[0]
 
         LOGGER.debug("column list: %s", column_list)
         query = self.generate_blob_query(table)
@@ -1013,8 +1121,7 @@ class OracleDatabase(db_lib.DB):
         gdf = gdf.rename(columns={"geometry_wkb": spatial_col.lower()})
 
         # Convert the GeoDataFrame to a PyArrow Table
-        table = pyarrow.Table.from_pandas(gdf)
-        return table
+        return pyarrow.Table.from_pandas(gdf)
 
     def extract_data(
         self,
@@ -1077,7 +1184,8 @@ class OracleDatabase(db_lib.DB):
                         export_file=export_file,
                     )
                 else:
-                    raise e
+                    msg = "error that is raised is not an illegal date"
+                    raise ValueError(msg) from e
         return file_created
 
     def extract_data_illegal_year(
@@ -1182,6 +1290,90 @@ class OracleDatabase(db_lib.DB):
 
             # all spatial columns? geo_metadata.get('columns', {}).keys()
         return spatial_column
+
+    def load_data_with_raw_blobby(
+        self,
+        table: str,
+        import_file: pathlib.Path,
+        *,
+        purge: bool = False,
+    ) -> None:
+        """
+        Load data from parquet file to oracle table with BLOB columns.
+
+        :param table: table name
+        :type table: str
+        :param import_file: import file path
+        :type import_file: pathlib.Path
+        :param purge: Should the contents of the file be purged before writing,
+                      defaults to False
+        :type purge: bool, optional
+        """
+        # make sure there is a connection
+        self.get_connection()
+        self.get_sqlalchemy_engine()
+
+        total_rows_read = 0
+
+        # delete records if necessary
+        if purge:
+            self.truncate_table(table.lower())
+        LOGGER.debug("loading data to table: %s", table)
+        with (
+            self.sql_alchemy_engine.connect() as connection,
+            connection.begin(),
+        ):
+            # set up a chunk reader
+            LOGGER.debug("reading parquet file, %s", import_file)
+            parquet_reader = pyarrow.parquet.ParquetFile(import_file)
+            iter_cnt = 1
+
+            # get blob columns
+            blob_columns = self.get_blob_columns(table)
+            LOGGER.debug("blob_columns: %s", blob_columns)
+
+            # Reading the data from parquet, in chunks
+            for batch in parquet_reader.iter_batches(
+                batch_size=self.chunk_size,
+            ):
+                # messaging
+                end_row_cnt = iter_cnt * self.chunk_size
+                start_row_cnt = end_row_cnt - self.chunk_size
+                LOGGER.debug(
+                    "writing rows from %s to %s",
+                    start_row_cnt,
+                    end_row_cnt,
+                )
+
+                # pyarrow record batch to pandas dataframe
+                to_ora_df = batch.to_pandas()
+                total_rows_read = total_rows_read + len(to_ora_df)
+                # override the current class implementation with my own to_sql
+                # method
+                to_ora_df.__class__ = DataFrameFast
+
+                LOGGER.debug("columns in dataframe: %s", to_ora_df.columns)
+                to_ora_df.to_sql(
+                    name=table,
+                    con=self.connection,
+                    if_exists="append",
+                    index=False,
+                    blob_cols=blob_columns,
+                )
+                iter_cnt += 1
+
+        # now verify data load
+        sql = f"Select count(*) from {self.schema_2_sync}.{table}"  # noqa: S608
+        LOGGER.debug("verify sql: %s", sql)
+        cur = self.connection.cursor()
+        cur.execute(sql.format(schema=self.schema_2_sync, table=table))
+        result = cur.fetchall()
+        rows_loaded = result[0][0]
+        if not rows_loaded:
+            LOGGER.error("no rows loaded to table %s", table)
+        LOGGER.info("rows loaded to table %s are:  %s", table, rows_loaded)
+        LOGGER.info("rows in parquet file: %s", total_rows_read)
+        cur.close()
 
 
 class FixOracleSequences:
@@ -1422,7 +1614,7 @@ class FixOracleSequences:
         :return: the max value
         :rtype: int
         """
-        query = f"SELECT MAX({column}) FROM {schema}.{table}"
+        query = f"SELECT MAX({column}) FROM {schema}.{table}"  # noqa: S608
         self.dbcls.get_connection()
         cur = self.dbcls.connection.cursor()
         cur.execute(query)
@@ -1497,3 +1689,127 @@ class FixOracleSequences:
             sequence_column = columns[val_cnt]
             LOGGER.debug(sequence_column)
         return sequence_column
+
+
+class DataFrameFast(pd.DataFrame):
+    """
+    Class with functionality to copy BLOB data from parquet to oracle.
+
+    :param pd: pandas dataframe
+    :type pd: pandas.DataFrame
+    """
+
+    def to_sql(
+        self,
+        name: str,
+        con: oracledb.Connection,
+        blob_cols: list[str],
+        if_exists: str = "append",
+        index: bool = False,  # noqa: FBT001, FBT002
+        *args,
+        **kwargs,
+    ) -> None:
+        """
+        Dump all the data to oracle.
+
+        :param name: The name of the table to write the data to.
+        :type name: _type_
+        :param con: A link to a python database connection object.
+        :type con: oracledb.Connection
+        :param if_exists: can be append|replace, determines what to do if the
+                          database object already exists, defaults to "append"
+        :type if_exists: str, optional
+        :param index: Just leave this as is, defaults to False
+        :type index: bool, optional
+        :param blob_cols: List of columns in the destination table that are
+                          defined as BLOB.  The blob columns will be populated
+                          using the oracle EMPTY_BLOB() method. defaults to []
+        :type blob_cols: list, optional
+        :raises AssertionError: _description_
+        """
+        if if_exists not in ["replace", "append"]:
+            msg = "not if_exists in ['replace', 'append'] is not yet impemented"
+            raise AssertionError(
+                msg,
+            )
+
+        # Truncate database table
+        # NOTE: Users may have to perform to_sql in the correct
+        # sequence to avoid causing foreign key errors with this step
+        if if_exists == "replace":
+            with con.cursor() as cursor:
+                cursor.execute(f"TRUNCATE TABLE {name}")
+
+        # Prepare an INSERT which will populate the real mariadb table with df's
+        # data
+        # INSERT INTO table(c1,c2,...) VALUES (v11,v12,...), ... (vnn,vn2,...);
+
+        # If index, then we also want the index inserted
+        LOGGER.debug("blobcols: %s", blob_cols)
+        LOGGER.debug("index name: %s", self.index.name)
+        LOGGER.debug("columns: %s", list(self.columns))
+
+        cols = [self.index.name] * index + list(self.columns)
+        vals = ", ".join([f":{cnt}" for cnt in range(1, len(cols) + 1)])
+        blob_cols = [col.upper() for col in blob_cols]
+
+        LOGGER.debug("columns: %s", list(self.columns))
+
+        if blob_cols:
+            blob_cols = [col.upper() for col in blob_cols]
+            vals = []
+            for column in self.columns:
+                if column.upper() in blob_cols:
+                    vals.append("EMPTY_BLOB()")
+                    self.drop(column, axis=1, inplace=True)
+                else:
+                    vals.append(f":{column}")
+        LOGGER.debug("vals: %s", vals)
+
+        cmd = (
+            f"INSERT INTO {name} ({', '.join(cols)}) VALUES ({', '.join(vals)})"  # noqa: S608
+        )
+        LOGGER.debug("cmd: %s", cmd)
+
+        table_data = list(self.itertuples(index=index))
+        LOGGER.debug("type(table_data) %s", type(table_data))
+        # Replace nan with None for SQL to accept it.
+
+        table_data = self.to_list()
+
+        if len(table_data) == 0:
+            pass
+        else:
+            with con.cursor() as cursor:
+                cursor.executemany(cmd, table_data)
+
+            LOGGER.debug("data has been entered!")
+
+    def to_list(self) -> list[list]:
+        """
+        Convert and clean the dataframe to a list.
+
+        Iterates through the data, converts bytestrings to hex, converts
+        pandas.NaN to None and returns a list for entry to the database.
+
+        :return: a list of lists from the dataframe that should be safe to write
+                 to oracle.
+        :rtype: list[list]
+        """
+        table_data = list(self.itertuples(index=False))
+        LOGGER.debug("type(table_data) %s", type(table_data))
+        # Replace nan with None for SQL to accept it.
+
+        table_data = [
+            [None if pd.isna(value) else value for value in sublist]
+            for sublist in table_data
+        ]
+        is_null = pd.isnull  # Store function reference for efficiency
+
+        for i in range(len(table_data)):  # Iterate over rows
+            for j in range(len(table_data[i])):  # Iterate over columns
+                if is_null(table_data[i][j]):  # Check for NaN
+                    table_data[i][j] = None  # Replace NaN with None
+                if isinstance(table_data[i][j], bytes):
+                    table_data[i][j] = table_data[i][j].hex()
+        return table_data
