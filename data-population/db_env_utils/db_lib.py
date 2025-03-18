@@ -481,7 +481,7 @@ class DB(ABC):
             iter_cnt = 1
 
             for batch in parquet_reader.iter_batches(
-                batch_size=self.chunk_size
+                batch_size=self.chunk_size,
             ):
                 end_row_cnt = iter_cnt * self.chunk_size
                 start_row_cnt = end_row_cnt - self.chunk_size
@@ -489,6 +489,7 @@ class DB(ABC):
                     "writing rows from %s to %s", start_row_cnt, end_row_cnt
                 )
                 df = batch.to_pandas()
+
                 df.to_sql(
                     table.lower(),
                     self.sql_alchemy_engine,
@@ -527,6 +528,22 @@ class DB(ABC):
             LOGGER.error("no rows loaded to table %s", table)
         LOGGER.debug("rows loaded to table %s are:  %s", table, rows_loaded)
         cur.close()
+
+    def check_utf8(self, value):
+        try:
+            if isinstance(value, str):
+                value.encode("utf-8")  # Try encoding the string as UTF-8
+            return False  # No issue
+        except UnicodeEncodeError:
+            return True  # Problematic value
+
+    def find_invalid_chars(self, value):
+        if isinstance(value, str):
+            try:
+                value.encode("utf-8")  # Try encoding
+                return None
+            except UnicodeEncodeError as e:
+                return f"Invalid char at {e.start}: {value[e.start:e.end]}"  # Show problem
 
     def load_data_retry(
         self,
