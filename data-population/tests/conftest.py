@@ -23,6 +23,7 @@ LOGGER = logging.getLogger(__name__)
 pytest_plugins = [
     "fixtures.demo_fixtures",
     "fixtures.dockerdb_fixtures",
+    "fixtures.db_fixtures",
 ]
 
 testSession = None

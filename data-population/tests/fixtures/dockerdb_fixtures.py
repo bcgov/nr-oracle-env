@@ -35,7 +35,7 @@ def docker_connection_params_ora():
     # only to support local dev.
     conn_params.password = "default"  # NOSONAR
     conn_params.host = "localhost"
-    conn_params.port = 1521
-    conn_params.service_name = "dbdock_01"
+    conn_params.port = 1523
+    conn_params.service_name = "dbdock_test_01"
     conn_params.schema_to_sync = "the"
     yield conn_params

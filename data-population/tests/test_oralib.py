@@ -5,7 +5,9 @@ import re
 
 import constants
 import env_config
+import oracledb
 import oradb_lib
+import pandas
 
 LOGGER = logging.getLogger(__name__)
 
@@ -252,3 +254,121 @@ def test_is_parquet(docker_connection_params_ora):
     is_geoparq = db.is_geoparquet(non_parq)
     LOGGER.debug("is geoparq? :%s", is_geoparq)
     assert not is_geoparq
+
+
+def test_raw_clob_data(
+    with_clob_raw_tab,
+    clob_data_2_load,
+    clob_parquet_file,
+    test_table_name_fixture,
+):
+    ora = with_clob_raw_tab
+    ora.load_data_with_raw_blobby(
+        table=test_table_name_fixture, import_file=clob_parquet_file, purge=True
+    )
+
+    cur = ora.connection.cursor()
+    query = (
+        f"Select count(*) from {ora.schema_2_sync}.{test_table_name_fixture}"
+    )
+    LOGGER.debug("query: %s", query)
+    cur.execute(query)
+    data = cur.fetchall()
+    LOGGER.debug("rows returned: %s", data)
+    # data will not show up if you do not commit the connection
+    # ora.connection.commit()
+
+
+def test_opening_attachement_load(db_connection_fixture):
+    ora = db_connection_fixture
+    # override the chunk size used for reading from parquet.
+    # chunks determine how many rows are written at a time.
+    # ora.ora_cur_arraysize = 5
+    # ora.chunk_size = 5
+    # THE.OPENING_ATTACHMENT
+    table = "OPENING_ATTACHMENT"
+    parquet_file = "/home/kjnether/fsa_proj/nr-fsa-orastruct/data-population/data/PROD/ORA/OPENING_ATTACHMENT.parquet"
+    ora.load_data_with_raw_blobby(
+        table=table, import_file=parquet_file, purge=True
+    )
+
+
+def test_load_raw_data(db_connection_fixture):
+    db_connection_fixture.get_connection()
+    conn = db_connection_fixture.connection
+    row = [
+        1,
+        -631760000,
+        "bednesti north Block Summaries 2002.xls",
+        "bednesti north Block Summaries",
+        "XLS",
+        "IDIR\\ADELLAVI",
+        pandas.Timestamp("2004-07-23 10:04:10"),
+        "IDIR\\ADELLAVI",
+        pandas.Timestamp("2004-07-23 10:04:28"),
+        2,
+        b'\x0c|\xe8\xec\x7f\xd5/\xa7\xe0c2\xb3"\x8e\xdbO',
+        # None,
+    ]
+    # b'\x0c|\xe8\xec\x7f\xd5/\xa7\xe0c2\xb3"\x8e\xdbO',
+
+    row2 = [
+        2,
+        -631760000,
+        "Bednesti-2003.pdf",
+        "bednesti PDF document",
+        "PDF",
+        "IDIR\\ADELLAVI",
+        pandas.Timestamp("2004-07-23 10:06:26"),
+        "IDIR\\ADELLAVI",
+        pandas.Timestamp("2004-07-23 10:06:28"),
+        1,
+        b'\x0c|\xe8\xec\x7f\xd6/\xa7\xe0c2\xb3"\x8e\xdbO',
+        # None,
+    ]
+
+    # u_string = codecs.decode(b_string, 'utf-8')
+    # oacle AL16UTF16
+    import codecs
+
+    # LOGGER.debug("decode string: %s", codecs.decode(row2[11], "utf-16"))
+    LOGGER.debug("raw data row 1: %s", row[10].hex())
+    LOGGER.debug("raw data row 2: %s %s", row2[10].hex(), type(row2[10]))
+
+    hex_data = "0C7CE8EC7FD52FA7E06332B3228EDB4F"
+    raw_data = bytes.fromhex(hex_data)
+    LOGGER.debug("raw_data, %s", raw_data)
+
+    "0c7ce8ec7fd52fa7e06332b3228edb4f"
+    LOGGER.debug(
+        "back to bytestring: %s",
+        bytes.fromhex("0c7ce8ec7fd52fa7e06332b3228edb4f"),
+    )
+
+    # INSERT INTO your_table (blob_column, text_column)
+    #     VALUES (EMPTY_BLOB(), :1)
+    #     RETURNING blob_column INTO :blob_var
+
+    ins = """ \
+    INSERT INTO OPENING_ATTACHMENT
+    (
+        opening_attachment_file_id,
+        opening_id, attachment_name,
+        attachment_description,
+        mime_type_code,
+        entry_userid,
+        entry_timestamp,
+        update_userid,
+        update_timestamp,
+        revision_count,
+        opening_attachment_guid,
+        attachment_data)
+    VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, EMPTY_BLOB() )
+    """
+    #    RETURNING blob_column INTO :blob_var
+
+    with conn.cursor() as cursor:
+        blob_var = cursor.var(oracledb.BLOB)
+        # blob_vars = [blob_var for _ in [row]]
+
+        cursor.executemany(ins, [row])
