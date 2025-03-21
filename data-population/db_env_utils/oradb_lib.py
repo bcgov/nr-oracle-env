@@ -15,6 +15,7 @@ ORACLE_SERVICE - database service
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import logging.config
@@ -574,6 +575,7 @@ class OracleDatabase(db_lib.DB):
         """
 
         self.get_connection()
+
         query = """SELECT
                     ac.constraint_name,
                     ac.table_name,
@@ -597,9 +599,9 @@ class OracleDatabase(db_lib.DB):
                     ac.table_name,
                     ac.constraint_name,
                     acc.POSITION"""
-        self.get_connection()
         cursor = self.connection.cursor()
-        cursor.execute(query, schema=self.schema_2_sync)
+        LOGGER.debug("schema_2_sync: %s", self.schema_2_sync)
+        cursor.execute(query, schema=self.schema_2_sync.upper())
         constraint_list = []
         for row in cursor:
             LOGGER.debug(row)
@@ -658,6 +660,9 @@ class OracleDatabase(db_lib.DB):
     def enable_constraints(
         self,
         constraint_list: list[db_lib.TableConstraints],
+        *,
+        retries=0,
+        auto_delete=False,
     ) -> None:
         """
         Enable all foreign key constraints.
@@ -676,6 +681,114 @@ class OracleDatabase(db_lib.DB):
                 f"ALTER TABLE {self.schema_2_sync}.{cons.table_name} "
                 f"ENABLE CONSTRAINT {cons.constraint_name}"
             )
+            try:
+                cursor.execute(query)
+            except DatabaseError:
+                if retries > 20:
+                    raise
+                LOGGER.debug("fixing constraints..")
+                retries += 1
+                self.disable_fk_constraints(constraint_list)
+                self.delete_no_ri_data(cons)
+                self.enable_constraints(constraint_list, retries=retries)
+
+        cursor.close()
+
+    def get_no_ri_data(self, constraint: db_lib.TableConstraints):
+        """
+        Get a records that violating RI integrity constraint.
+
+        :param constraint: a constraint object
+        :type constraint: db_lib.TableConstraints
+        """
+        #     constraint_name: str
+        # table_name: str
+        # column_names: list[str]
+        # r_constraint_name: str
+        # referenced_table: str
+        # referenced_columns: list[str]
+
+        # SELECT
+        # cba.CB_SKEY AS cba,
+        # cb.CB_SKEY AS cb,
+        # cba.OPENING_ID
+        # FROM
+        # CUT_BLOCK_OPEN_ADMIN cba
+        # FULL OUTER JOIN
+        # CUT_BLOCK cb
+        # ON
+        # cb.CB_SKEY = cba.CB_SKEY
+        # WHERE
+        # ( cb.CB_SKEY IS NULL AND cba.CB_SKEY IS NOT NULL ) OR
+        # ( cb.CB_SKEY IS NOT NULL AND cba.CB_SKEY IS NULL );
+        column_name_str = constraint.column_names
+        ref_col_name_str = constraint.referenced_columns
+        if (
+            isinstance(constraint.column_names, list)
+            and len(constraint.column_names) > 1
+        ):
+            column_name_str = "|".join(constraint.column_names)
+        if (
+            isinstance(constraint.referenced_columns, list)
+            and len(constraint.referenced_columns) > 1
+        ):
+            ref_col_name_str = "|".join(constraint.referenced_columns)
+        query = f"""
+            SELECT
+                T1.{column_name_str} as C1
+            FROM
+                {constraint.table_name} T1
+            FULL OUTER JOIN
+                {constraint.referenced_table} T2
+            ON
+                T1.{column_name_str} = T2.{ref_col_name_str}
+            WHERE
+                ( T1.{column_name_str} is not null and T2.{ref_col_name_str} is null )
+        """
+        # OR ( T1.{column_name_str} is null and T2.{ref_col_name_str} is not null )
+        LOGGER.debug("query: %s", query)
+        cursor = self.connection.cursor()
+        cursor.execute(query)
+        results = cursor.fetchall()
+        cursor.close()
+        # flatten the struct
+        records_to_delete = [rec[0] for rec in results]
+        LOGGER.debug("records_to_delete: %s...", records_to_delete[0:10])
+        LOGGER.debug("len of results: %s", len(results))
+        return records_to_delete
+
+    def delete_no_ri_data(self, constraint: db_lib.TableConstraints) -> None:
+        """
+        delete data that has referential interity constraint issues.
+        """
+        LOGGER.debug(
+            "trying to fix data associated with constraint: %s", constraint
+        )
+        if (
+            isinstance(constraint.column_names, list)
+            and len(constraint.column_names) > 1
+        ):
+            LOGGER.error("unsupported: fix for this constraint: %s", constraint)
+            msg = (
+                f"the constraint {constraint.constraint_name} uses more "
+                "than one column to define the referential integrity "
+                "this is a use case that is not currently supported"
+            )
+            # TODO: should really define my own error here
+            raise ValueError(msg)
+
+        no_ri_data_all = self.get_no_ri_data(constraint)
+        cursor = self.connection.cursor()
+        for i in range(0, len(no_ri_data_all), 10000):
+            no_ri_data = no_ri_data_all[i : i + 10000]
+
+            if not isinstance(no_ri_data[0], str):
+                no_ri_str = ",".join([str(val) for val in no_ri_data])
+            else:
+                no_ri_str = ",".join([f"'{val}'" for val in no_ri_data])
+            query = f"DELETE FROM {constraint.table_name} where {constraint.column_names} in ({no_ri_str})"
+            LOGGER.debug("delete not ri records query: %s ...", query[0:200])
+
             cursor.execute(query)
         cursor.close()
 
@@ -895,7 +1008,7 @@ class OracleDatabase(db_lib.DB):
         # to patch the query to handle sdo data.
         query = (
             f"SELECT {', '.join(column_with_wkb_func)} from "  # noqa: S608
-            f"{self.schema_2_sync}.{table}"
+            f"{self.schema_2_sync.upper()}.{table.upper()}"
         )
         LOGGER.debug("sdo query: %s", query)
         return query
@@ -947,12 +1060,51 @@ class OracleDatabase(db_lib.DB):
         LOGGER.debug("temp parquet file: %s", temp_parquet_file)
         return temp_parquet_file
 
+    def get_pyarrow_schema_from_db(
+        self,
+        description: oracledb.Cursor.description,
+        spatial_column_name: str = None,
+    ):
+        # constants.PYTHON_PYARROW_TYPE_MAP
+        LOGGER.debug("description: %s", description)
+        schema_map = []
+        for column_obj in description:
+            column_type = column_obj[1]
+            if column_type not in constants.DB_TYPE_PYARROW_MAP:
+                msg = (
+                    f"the query returned a type of {column_type}, which does "
+                    "not have a mapping to the defined PYARROW mappings: "
+                    f"{constants.PYTHON_PYARROW_TYPE_MAP}"
+                )
+                raise KeyError(msg)
+            pyarrow_type = constants.DB_TYPE_PYARROW_MAP[column_type]
+            if (spatial_column_name) and column_obj[
+                0
+            ].lower() == spatial_column_name.lower():
+                # make the type binary as it will be converted from WKT to WKB
+                pyarrow_type = pyarrow.binary()
+            # if column_obj[0].lower() == spatial_column_name.lower():
+            #     # trying to debug by taking spatial oout
+            #     pass
+            # else:
+            schema_map.append(
+                [
+                    column_obj[0].lower(),
+                    pyarrow_type,
+                ]
+            )
+
+        schema = pyarrow.schema([(col[0], col[1]) for col in schema_map])
+        return schema
+
     def extract_data_sdogeometry(
         self,
         table: str,
         export_file: pathlib.Path,
         *,
         overwrite: bool = False,  # noqa: ARG002
+        chunk_size: int = 25000,
+        max_records: int = 0,
     ) -> bool:
         """
         Extract data from a table that contains SDO_GEOMETRY columns.
@@ -963,55 +1115,114 @@ class OracleDatabase(db_lib.DB):
         :type export_file: pathlib.Path
         :param overwrite: if the file already exists what to do
         :type overwrite: bool, optional
+        :param chunk_size: number of records to read from database at a time.
+        :type chunk_size: int, optional
+        :param max_records: if set defines the maximum number of records to read.
+            will be the chunk_size * x > max_records
+        :type max_records: int, optional
         :return: was the file successfully created
         :rtype: bool
         """
+        self.get_sqlalchemy_engine()
+        self.get_connection()
+
         column_list = self.get_column_list(table)
+        LOGGER.debug("column list: %s", column_list)
+
         spatial_columns = self.get_sdo_geometry_columns(table)
         if len(spatial_columns) > 1:
             msg = "only one spatial column is supported"
             raise ValueError(msg)
         spatial_col = spatial_columns[0]
 
-        LOGGER.debug("column list: %s", column_list)
         query = self.generate_sdo_query(table)
         LOGGER.debug("spatial query: %s", query)
-        self.get_sqlalchemy_engine()
+
+        # need to get the types
+        cur = self.connection.cursor()
+        cur.execute(query)
+        pyarrow_schema = self.get_pyarrow_schema_from_db(
+            description=cur.description, spatial_column_name=spatial_col
+        )
+        cur.close()
+        LOGGER.debug("pyarrow schema: %s", pyarrow_schema)
 
         writer = None
 
-        chunk_size = 25000  # 25000  # number of rows to include in a chunk
+        # chunk_size = 25000  # 25000  # number of rows to include in a chunk
         itercnt = 1
         for chunk in pd.read_sql(
             query,
             self.sql_alchemy_engine,
             chunksize=chunk_size,
         ):
+            if chunk.empty:
+                itercnt += 1
+                LOGGER.debug("empty dataframe... itercnt: %s", itercnt)
+                continue
             if itercnt == 1:
                 # after first chunk is read, convert it to a pyarrow table and
                 # use that as the schema for the stream writer.
                 LOGGER.debug(
                     "first chunk has been read, rows: %s",
-                    len(chunk_size),
+                    len(chunk),
                 )
-                table = self.df_to_gdf(chunk, spatial_col)
+                LOGGER.debug(
+                    "column name and types %s / %s", chunk.columns, chunk.dtypes
+                )
+                table = self.df_to_gdf(chunk, spatial_col, pyarrow_schema)
+                # define the geoparquet metadata:
+                geo_metadata = {
+                    "version": "1.0.0",
+                    "primary_column": spatial_col.lower(),
+                    "columns": {
+                        spatial_col.lower(): {
+                            "encoding": "WKB",
+                            "geometry_type": "Unknown",  # You can specify "Point", "Polygon", etc.
+                            "crs": "EPSG:3005",  # Set CRS if applicable
+                        }
+                    },
+                }
+
+                # 🔹 Attach metadata to schema (only once, at creation)
+                metadata = (
+                    pyarrow_schema.metadata or {}
+                )  # Get existing metadata if any
+                metadata[b"geo"] = json.dumps(geo_metadata).encode(
+                    "utf-8"
+                )  # Store as bytes
+                pyarrow_schema = pyarrow_schema.with_metadata(
+                    metadata
+                )  # Update schema with metadata
+                LOGGER.debug("pyarrow schema: %s", pyarrow_schema)
+
                 writer = pyarrow.parquet.ParquetWriter(
                     str(export_file),
-                    table.schema,
+                    pyarrow_schema,
                     compression="snappy",
                 )
                 itercnt += 1
                 writer.write_table(table)
-                continue
+                LOGGER.debug(
+                    "records read (max recs): %s (%s)",
+                    itercnt * chunk_size,
+                    max_records,
+                )
+
             LOGGER.debug(
                 "read chunk:%s chunks read: %s",
                 chunk_size,
-                chunk_size + itercnt,
+                chunk_size * itercnt,
             )
-            table = self.df_to_gdf(chunk, spatial_col)
+            table = self.df_to_gdf(chunk, spatial_col, pyarrow_schema)
             LOGGER.debug("    writing chunk to parquet file...")
             writer.write_table(table)
+
+            if (max_records) and itercnt * chunk_size > max_records:
+                break
             itercnt += 1
+            continue
+        LOGGER.debug("closing the file")
         writer.close()
         return True
 
@@ -1021,6 +1232,8 @@ class OracleDatabase(db_lib.DB):
         export_file: pathlib.Path,
         *,
         overwrite: bool = False,  # noqa: ARG002
+        chunk_size=25000,
+        max_records=0,
     ) -> bool:
         """
         Write table with BLOB data to parquet file.
@@ -1053,7 +1266,6 @@ class OracleDatabase(db_lib.DB):
 
         writer = None
 
-        chunk_size = 25000  # 25000  # number of rows to include in a chunk
         itercnt = 1
         for chunk in pd.read_sql(
             query,
@@ -1083,11 +1295,15 @@ class OracleDatabase(db_lib.DB):
             )
             LOGGER.debug("    writing chunk to parquet file...")
             writer.write_table(table)
+            if (max_records) and chunk_size * itercnt > max_records:
+                break
             itercnt += 1
         writer.close()
         return True
 
-    def df_to_gdf(self, df: pd.DataFrame, spatial_col: str) -> gpd.GeoDataFrame:
+    def df_to_gdf(
+        self, df: pd.DataFrame, spatial_col: str, pyarrow_schema: pyarrow.Schema
+    ) -> gpd.GeoDataFrame:
         """
         Convert a pandas DataFrame to a geopandas GeoDataFrame.
 
@@ -1100,28 +1316,25 @@ class OracleDatabase(db_lib.DB):
         :type spatial_col: str
         """
         LOGGER.debug("    converting df to gdf...")
-        df[spatial_col.lower()] = df[spatial_col.lower()].apply(
-            shapely.wkt.loads,
-        )
-
         gdf = gpd.GeoDataFrame(
             df,
-            geometry=spatial_col.lower(),
+            geometry=gpd.GeoSeries.from_wkt(
+                df[spatial_col.lower()],
+            ),
             crs="EPSG:3005",
         )
 
-        gdf["geometry_wkb"] = gdf[spatial_col.lower()].apply(
-            lambda geom: geom.wkb,
+        # Convert to Shapely geometries
+        gdf[spatial_col.lower()] = gdf[spatial_col.lower()].apply(
+            shapely.wkb.dumps
         )
+        LOGGER.debug("gdf columns: %s", gdf.columns)
 
-        # Drop the original geometry column
-        gdf = gdf.drop(spatial_col.lower(), axis=1)
-
-        # Rename the WKB column to 'geometry'
-        gdf = gdf.rename(columns={"geometry_wkb": spatial_col.lower()})
-
+        tabletmp = pyarrow.Table.from_pandas(gdf)
+        LOGGER.debug("pyarrow schema: %s", tabletmp.schema)
+        table = pyarrow.Table.from_pandas(gdf, pyarrow_schema)
         # Convert the GeoDataFrame to a PyArrow Table
-        return pyarrow.Table.from_pandas(gdf)
+        return table
 
     def extract_data(
         self,
@@ -1129,6 +1342,8 @@ class OracleDatabase(db_lib.DB):
         export_file: pathlib.Path,
         *,
         overwrite: bool = False,
+        chunk_size: int = 25000,
+        max_records: int = 0,
     ) -> bool:
         """
         Extract a table from the database to a parquet file.
@@ -1156,6 +1371,8 @@ class OracleDatabase(db_lib.DB):
                 table=table,
                 export_file=export_file,
                 overwrite=overwrite,
+                chunk_size=chunk_size,
+                max_records=max_records,
             )
         elif self.has_blob(table):
             LOGGER.info("table %s has a field with BLOB type", table)
@@ -1164,6 +1381,8 @@ class OracleDatabase(db_lib.DB):
                 table=table,
                 export_file=export_file,
                 overwrite=overwrite,
+                chunk_size=chunk_size,
+                max_records=max_records,
             )
 
         else:
@@ -1172,6 +1391,8 @@ class OracleDatabase(db_lib.DB):
                     table,
                     export_file,
                     overwrite=overwrite,
+                    chunk_size=chunk_size,
+                    max_records=max_records,
                 )
             except ValueError as e:
                 if str(e) == "year -1 is out of range":
@@ -1262,13 +1483,19 @@ class OracleDatabase(db_lib.DB):
         :rtype: bool
         """
         metadata = pyarrow.parquet.read_metadata(parquet_file_path)
-        is_parquet = False
+        is_geo_parquet = False
 
         # Check for GeoParquet-specific metadata
         if b"geo" in metadata.metadata:
             LOGGER.debug("input parquet is geo! %s", parquet_file_path)
-            is_parquet = True
-        return is_parquet
+            is_geo_parquet = True
+        if not is_geo_parquet:
+            gdf = gpd.read_parquet(parquet_file_path)
+            # Check if the DataFrame has a geometry column
+            if isinstance(gdf, gpd.GeoDataFrame) and gdf.geometry is not None:
+                is_geo_parquet = True
+
+        return is_geo_parquet
 
     def get_geoparquet_spatial_column(
         self,

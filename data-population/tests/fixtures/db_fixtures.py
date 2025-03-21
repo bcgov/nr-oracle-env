@@ -25,6 +25,17 @@ def app_paths_fixture():
 
 
 @pytest.fixture(scope="module")
+def db_connection_on_prem_prod_fixture():
+    env = env_config.Env("PROD")
+    conn_params = env.get_ora_db_env_constants()
+    ora = oradb_lib.OracleDatabase(
+        connection_params=conn_params,
+        app_paths=app_paths_fixture,
+    )
+    yield ora
+
+
+@pytest.fixture(scope="module")
 def db_connection_fixture(docker_connection_params_ora, app_paths_fixture):
     ora = oradb_lib.OracleDatabase(
         connection_params=docker_connection_params_ora,

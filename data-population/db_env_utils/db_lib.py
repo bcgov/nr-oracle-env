@@ -5,6 +5,7 @@ Abstract base class for database operations.
 from __future__ import annotations
 
 import datetime
+import decimal
 import logging
 import os
 import pathlib
@@ -302,18 +303,20 @@ class DB(ABC):
         """
 
         column_names = [column.name for column in table.columns]
+        # type_mapping = {
+        #     str: pyarrow.string(),
+        #     int: pyarrow.int64(),
+        #     float: pyarrow.float64(),
+        #     decimal.Decimal: pyarrow.float64(),
+        #     datetime.datetime: pyarrow.timestamp("s"),
+        #     bytes: pyarrow.binary(),
+        # }
         column_types = [
-            pyarrow.string()
-            if column.type.python_type == str
-            else pyarrow.int64()
-            if column.type.python_type == int
-            else pyarrow.float64()
-            if column.type.python_type == float
-            else pyarrow.timestamp("s")
-            if column.type.python_type == datetime.datetime
-            else None
+            constants.PYTHON_PYARROW_TYPE_MAP.get(column.type.python_type, None)
             for column in table.columns
         ]
+
+        LOGGER.debug("column types: %s", column_types)
         LOGGER.debug("column names: %s", column_names)
 
         # Create a PyArrow schema from the column names and data types
@@ -324,6 +327,24 @@ class DB(ABC):
                 if typ is not None
             ]
         )
+
+        # verify
+        pyarrow_columns = set(schema.names)
+        if pyarrow_columns != set(column_names):
+            # find missing columns
+            missing_columns = set(column_names) - pyarrow_columns
+
+            for missing_column_name in missing_columns:
+                column = table.c[missing_column_name]
+                LOGGER.error(
+                    "no type defined for column: %s of type %s",
+                    missing_column_name,
+                    column.type.python_type,
+                )
+
+            msg = f"Missing data type for columns: {missing_columns}"
+            raise ValueError(msg)
+
         LOGGER.debug("schema: %s", schema)
         return schema
 
@@ -348,6 +369,8 @@ class DB(ABC):
         export_file: pathlib.Path,
         *,
         overwrite: bool = False,
+        chunk_size=None,
+        max_records=0,
     ) -> bool:
         """
         Extract a table from the database to a parquet file.
@@ -364,6 +387,10 @@ class DB(ABC):
         """
         LOGGER.debug("exporting table %s to %s", table, export_file)
         file_created = False
+
+        # pull the default chunk size if it hasn't been overridden.
+        if chunk_size is None:
+            chunk_size = self.chunk_size
 
         # check that the directory for export file exists
         export_file.parent.mkdir(parents=True, exist_ok=True)
@@ -394,12 +421,14 @@ class DB(ABC):
             for chunk in pd.read_sql(
                 select_obj,
                 self.sql_alchemy_engine,
-                chunksize=self.chunk_size,
+                chunksize=chunk_size,
             ):
                 LOGGER.debug("writing chunk %s", itercnt * self.chunk_size)
                 table = pyarrow.Table.from_pandas(chunk, schema=pyarrow_schema)
 
                 writer.write_table(table)
+                if (max_records) and chunk_size * itercnt > max_records:
+                    break
                 itercnt += 1
             writer.close()
 
@@ -489,7 +518,7 @@ class DB(ABC):
                     "writing rows from %s to %s", start_row_cnt, end_row_cnt
                 )
                 df = batch.to_pandas()
-
+                data_schema = self.get_pyarrow_schema()
                 df.to_sql(
                     table.lower(),
                     self.sql_alchemy_engine,
@@ -543,7 +572,7 @@ class DB(ABC):
                 value.encode("utf-8")  # Try encoding
                 return None
             except UnicodeEncodeError as e:
-                return f"Invalid char at {e.start}: {value[e.start:e.end]}"  # Show problem
+                return f"Invalid char at {e.start}: {value[e.start : e.end]}"  # Show problem
 
     def load_data_retry(
         self,

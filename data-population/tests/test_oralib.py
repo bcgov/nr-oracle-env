@@ -285,13 +285,83 @@ def test_opening_attachement_load(db_connection_fixture):
     # chunks determine how many rows are written at a time.
     # ora.ora_cur_arraysize = 5
     # ora.chunk_size = 5
-    # THE.OPENING_ATTACHMENT
+    # THE.OPENING_ATTACHMENT STOCKING_STANDARD_UNIT
     # HARVESTING_AUTHORITY PROV_FOREST_USE HAULING_AUTHORITY
-    table = "HARVESTING_AUTHORITY"
+    table = "STOCKING_STANDARD_UNIT"
     parquet_file = f"/home/kjnether/fsa_proj/nr-fsa-orastruct/data-population/data/PROD/ORA/{table}.parquet"
     ora.load_data_with_raw_blobby(
-        table=table, import_file=parquet_file, purge=True
+        table=table,
+        import_file=parquet_file,
+        purge=True,
     )
+
+
+def test_get_pyarrow_schema(db_connection_fixture):
+    ora = db_connection_fixture
+    table_name = "STOCKING_STANDARD_UNIT"
+    table_obj = ora.get_table_object(table_name)
+    for column in table_obj.columns:
+        LOGGER.debug(
+            "column name: %s column type: %s",
+            column.name,
+            column.type.python_type,
+        )
+    pyarrow_schema = ora.get_pyarrow_schema(table_obj)
+    LOGGER.debug("pyarrow_schema: %s", pyarrow_schema)
+
+
+def test_extract_data(db_connection_on_prem_prod_fixture):
+    ora = db_connection_on_prem_prod_fixture
+    table_name = "FOREST_COVER_GEOMETRY"
+
+    output_parquet_file = (
+        pathlib.Path(__file__).parent / "test_data" / f"{table_name}.parquet"
+    )
+    if output_parquet_file.exists():
+        LOGGER.debug("nuke the test parquet file: %s", output_parquet_file)
+        output_parquet_file.unlink()
+    # parquet_file = f"/home/kjnether/fsa_proj/nr-fsa-orastruct/data-population/data/PROD/ORA/{table}.parquet"
+
+    ora.extract_data(
+        table=table_name,
+        export_file=output_parquet_file,
+        chunk_size=100,
+        max_records=300,
+    )
+    is_geo = ora.is_geoparquet(output_parquet_file)
+    LOGGER.debug("is geoparquet: %s", is_geo)
+
+    # verify the file
+    df = pandas.read_parquet(str(output_parquet_file))
+    LOGGER.debug("schema of parquet: %s", df.dtypes.to_dict())
+
+    # row count
+    # LOGGER.debug("len(df.index): %s", len(df.index))
+
+
+def test_debug_load_problem_tables(db_connection_fixture):
+    ora = db_connection_fixture
+    table = "FOREST_COVER_GEOMETRY"
+    parquet_file = f"/home/kjnether/fsa_proj/nr-fsa-orastruct/data-population/data/PROD/ORA/{table}.parquet"
+    # parquet_file = f"/home/kjnether/Downloads/{table}.parquet"
+    # parquet_file = str(
+    #     pathlib.Path(__file__).parent / "test_data" / f"{table}.parquet"
+    # )
+
+    # table_obj = ora.get_table_object(table)
+    # pyarrow_schema = ora.get_pyarrow_schema(table_obj)
+
+    # LOGGER.debug("df columns: %s", df.columns)
+
+    from pyarrow.parquet import ParquetFile
+
+    # ParquetFile(source).metadata
+    LOGGER.debug("schema from file: %s", ParquetFile(parquet_file).schema)
+
+    # NET_AREA
+    # df.query()
+    # LOGGER.debug("")
+    ora.load_data(table=table, import_file=parquet_file, purge=True)
 
 
 def test_load_raw_data(db_connection_fixture):
@@ -373,3 +443,23 @@ def test_load_raw_data(db_connection_fixture):
         # blob_vars = [blob_var for _ in [row]]
 
         cursor.executemany(ins, [row])
+
+
+def test_enable_integrity_constraint(db_connection_fixture):
+    ora = db_connection_fixture
+    ora.get_connection()
+    cons_list = ora.get_fk_constraints()
+    LOGGER.debug("cons_list length: %s", len(cons_list))
+    ora.enable_constraints(cons_list)
+
+
+def test_load_sdo_data(db_connection_fixture):
+    ora = db_connection_fixture
+
+    table = "FOREST_COVER_GEOMETRY"
+    parquet_file = (
+        pathlib.Path(__file__).parent / "test_data" / f"{table}.parquet"
+    )
+
+    ora.get_connection()
+    ora.load_data(table=table, import_file=parquet_file)
