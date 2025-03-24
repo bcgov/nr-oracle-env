@@ -33,6 +33,8 @@ VALID_ENVS = ("DEV", "TEST", "PROD", "LOCAL")
 
 PARQUET_SUFFIX = "parquet"
 SQL_DUMP_SUFFIX = "sql.gz"
+DUCKDB_TMP_FILE = "donald.duckdb"
+DUCK_DB_MEM_LIM = "5GB"
 
 # name of the directory in object store where the data backup files reside
 OBJECT_STORE_DATA_DIRECTORY = os.getenv("OBJECT_STORE_DATA_DIRECTORY", "pyetl")

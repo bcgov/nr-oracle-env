@@ -3,7 +3,6 @@ Starting to move any path methods to this module.
 """
 
 import logging
-import os
 import pathlib
 import tempfile
 
@@ -37,18 +36,19 @@ class AppPaths:
 
         """
         tmpdir = self.get_temp_dir()
-        fd, tmp_parquet_file = tempfile.mkstemp(
+        fd, tmp_parquet_file_str = tempfile.mkstemp(
             suffix=".parquet",
             dir=tmpdir,
             prefix=prefix,
         )
-        if os.path.exists(tmp_parquet_file):
-            os.remove(tmp_parquet_file)
+        tmp_parquet_file = pathlib.Path(tmp_parquet_file_str)
+        if tmp_parquet_file.exists():
+            tmp_parquet_file.unlink()
         LOGGER.debug("tmp_parquet_file: %s", tmp_parquet_file)
         LOGGER.debug("fd: %s %s", fd, type(fd))
-        return pathlib.Path(tmp_parquet_file)
+        return tmp_parquet_file
 
-    def get_data_dir(self, *, create=True) -> pathlib.Path:
+    def get_data_dir(self, *, create: bool = True) -> pathlib.Path:
         """
         Generate a path to the data directory.
 
@@ -92,6 +92,22 @@ class AppPaths:
         if create:
             tmp_dir.mkdir(exist_ok=True)
         return tmp_dir
+
+    def get_temp_duckdb_path(self) -> pathlib.Path:
+        """
+        Return path to temporary duckdb database file.
+
+        Due to limitations with geoparquet, that require the entire database to
+        be read into memory before writing, using a workaround that first dumps
+        data to duckdb, then from duckdb write the geoparquet file.
+
+        :return: path to the duck db database file
+        :rtype: pathlib.Path
+        """
+        tmpdir = self.get_temp_dir(create=True)
+        duck_db_path = tmpdir / constants.DUCKDB_TMP_FILE
+        LOGGER.debug("duckdb path: %s", duck_db_path)
+        return duck_db_path
 
     def get_parquet_file_path(
         self,

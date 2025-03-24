@@ -5,6 +5,7 @@ import re
 
 import constants
 import env_config
+import geopandas
 import oracledb
 import oradb_lib
 import pandas
@@ -310,6 +311,45 @@ def test_get_pyarrow_schema(db_connection_fixture):
     LOGGER.debug("pyarrow_schema: %s", pyarrow_schema)
 
 
+def test_parquet_from_duck(db_connection_fixture):
+    ora = db_connection_fixture
+
+    table_name = "FOREST_COVER_GEOMETRY"
+
+    output_parquet_file = (
+        pathlib.Path(__file__).parent / "test_data" / f"{table_name}_T.parquet"
+    )
+
+    import duckdb
+
+    database_file = pathlib.Path(
+        pathlib.Path(__file__).parent / "test_data" / "junk.duckdb"
+    )
+    # database_file = "/home/kjnether/fsa_proj/nr-fsa-orastruct/data-population/tests/test_data/junk.duckdb"
+    ddb_con = duckdb.connect(database=database_file)
+    ddb_con.install_extension("spatial")
+    ddb_con.load_extension("spatial")
+    # ST_GeomFromText
+    query = f"""
+        COPY (
+            select forest_cover_id, ST_GeomFromWKB(GEOMETRY) AS GEOMETRY,
+              feature_area, feature_perimeter, capture_method_code,
+                data_source_code, feature_class_skey, observation_date,
+                  data_quality_comment, entry_userid, entry_timestamp,
+                    update_userid, update_timestamp, revision_count
+                    FROM my_table)
+                    TO '{output_parquet_file}' (FORMAT PARQUET);
+    """
+    ddb_con.sql(query)
+    ddb_con.close()
+
+    is_geo = ora.is_geoparquet(output_parquet_file)
+    LOGGER.debug("is geoparquet: %s", is_geo)
+
+    spatial_column = ora.get_geoparquet_spatial_column(output_parquet_file)
+    LOGGER.debug(f"spatial_column: {spatial_column}")
+
+
 def test_extract_data(db_connection_on_prem_prod_fixture):
     ora = db_connection_on_prem_prod_fixture
     table_name = "FOREST_COVER_GEOMETRY"
@@ -322,7 +362,14 @@ def test_extract_data(db_connection_on_prem_prod_fixture):
         output_parquet_file.unlink()
     # parquet_file = f"/home/kjnether/fsa_proj/nr-fsa-orastruct/data-population/data/PROD/ORA/{table}.parquet"
 
-    ora.extract_data(
+    # ora.extract_data(
+    #     table=table_name,
+    #     export_file=output_parquet_file,
+    #     chunk_size=100,
+    #     max_records=300,
+    # )
+
+    ora.extract_data_sdogeometry_ddb(
         table=table_name,
         export_file=output_parquet_file,
         chunk_size=100,
@@ -332,8 +379,9 @@ def test_extract_data(db_connection_on_prem_prod_fixture):
     LOGGER.debug("is geoparquet: %s", is_geo)
 
     # verify the file
-    df = pandas.read_parquet(str(output_parquet_file))
-    LOGGER.debug("schema of parquet: %s", df.dtypes.to_dict())
+    # df = pandas.read_parquet(str(output_parquet_file))
+    # LOGGER.debug("schema of parquet: %s", df.dtypes.to_dict())
+    gdf = geopandas.read_file(output_parquet_file, ignore_geometry=True)
 
     # row count
     # LOGGER.debug("len(df.index): %s", len(df.index))

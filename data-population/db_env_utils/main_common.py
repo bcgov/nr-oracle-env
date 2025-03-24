@@ -331,12 +331,13 @@ class Utility:
 
         self.make_dirs()
 
-        # gets the table list from openshift database
+        # gets the table list from database
         tables_to_export = self.get_tables_for_extract()
         LOGGER.debug("tables to export: %s", tables_to_export)
 
         ostore = self.connect_ostore()
 
+        # connect to database
         if self.db_type == constants.DBType.ORA:
             # if oracle then do these things...
             ora_params = self.env_obj.get_ora_db_env_constants()
@@ -358,8 +359,10 @@ class Utility:
         for table in tables_to_export:
             LOGGER.info("Exporting table %s", table)
             # skip the forest cover geometry table, for now
-            tables_2_skip = ["TIMBER_MARK", "HARVESTING_AUTHORITY"]
-            # tables_2_skip = ["FOREST_COVER_GEOMETRY"]
+            # tables_2_skip = ["TIMBER_MARK", "HARVESTING_AUTHORITY"]
+            # tables_2_skip = ["FOREST_COVER_GEOMETRY", "STOCKING_STANDARD_GEOMETRY"]
+            tables_2_skip = []
+            # leeaving
             if table.upper() in tables_2_skip:
                 # FOREST_COVER_GEOMETRY - requires a tweak to address sdo
                 #                         geometry
@@ -426,9 +429,16 @@ class Utility:
         if self.db_type == constants.DBType.OC_POSTGRES:
             self.kube_client.close_port_forward()
 
-    def run_injest(self, *, purge: bool) -> None:
+    def run_injest(self, *, purge: bool, refreshdb: bool) -> None:
         """
-        Run the ingest process.
+        Load data cached in object store to the database.
+
+        :param purge: if true will delete all local cached data files and will
+            re-pull that data from object storage.
+        :type purge: bool
+        :param refreshdb: If true will truncate all the tables that are to be
+            loaded, otherwise will only load empty tables.
+        :type refreshdb: bool
         """
         datadir = self.app_paths.get_data_dir()
         if purge and datadir.exists():
@@ -461,18 +471,24 @@ class Utility:
             local_db_params = dcr.get_spar_conn_params()
             local_docker_db = postgresdb_lib.PostgresDatabase(local_db_params)
 
+        # only gets files if they don't exist locally.  If purge is set then the
+        # local cache will have been emptied before code gets here.
         ostore.get_data_files(
             tables_to_import,
             self.env_obj.current_env,
             self.db_type,
         )
 
-        # delete the database data... this always happens for ingest
-        local_docker_db.purge_data(table_list=tables_to_import, cascade=True)
+        # delete the database data. Also handled downstream... could be removed
+        # and only handled here.
+        if refreshdb:
+            local_docker_db.purge_data(
+                table_list=tables_to_import, cascade=True
+            )
         datadir = self.app_paths.get_data_dir()
         local_docker_db.load_data_retry(
             data_dir=datadir,
             table_list=tables_to_import,
             env_str=self.env_obj.current_env,
-            purge=purge,
+            refreshdb=refreshdb,
         )

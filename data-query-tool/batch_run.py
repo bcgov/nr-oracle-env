@@ -120,7 +120,7 @@ if __name__ == "__main__":
         / ".."
         / "project_specific"
         / "silva"
-        / "migrations"
+        / "migrations2"
     )
 
     batch_table_2_run = (
@@ -129,8 +129,9 @@ if __name__ == "__main__":
         / "project_specific"
         / "silva"
         / "misc"
-        / "tablelist.txt"
+        / "origlist_and_ron.txt"
     )
+    # /home/kjnether/fsa_proj/nr-fsa-orastruct/project_specific/silva/misc/origlist_and_ron.txt
     print("table_list", batch_table_2_run)
     print("migration foler", migration_folder)
     # raise

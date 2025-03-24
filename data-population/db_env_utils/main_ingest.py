@@ -65,9 +65,14 @@ LOGGER = logging.getLogger(__name__)
 @click.option(
     "--purge",
     is_flag=True,
-    help="Purge the database and reload with fresh data",
+    help="if set, deletes local data and re-pulls from ostore",
 )
-def main(dest, environment, purge) -> None:
+@click.option(
+    "--refreshdb",
+    is_flag=True,
+    help="if set true all tables will be truncated in db before load",
+)
+def main(dest, environment, purge, refreshdb) -> None:
     """
     Load the data from object store cache to local oracle database.
 
@@ -85,6 +90,12 @@ def main(dest, environment, purge) -> None:
     --purge: (Optional) set this flag if you want to ensure the data that is
              cached in object store is being used for the load.  Otherwise
              will re-use any locally cached data from previous runs.
+
+    \b
+    --refreshdb: (Optional) set this flag if you want to re-load all the data
+            in the database.  If set all tables will be truncated before the
+            load is attempted.  If not set only empty tables will be loaded,
+            ie tables with no rows.
     """
     global LOGGER
     dest = dest.upper()  # Ensure uppercase for consistency
@@ -107,8 +118,18 @@ def main(dest, environment, purge) -> None:
             "Purge flag is not enabled... Only load data from local files."
         )
 
+    if refreshdb:
+        click.echo(
+            "refreshdb flag is enabled. All tables will truncated before load"
+        )
+    else:
+        click.echo(
+            "refreshdb flag is not enabled... Only empty tables will be loaded"
+        )
+
     LOGGER.debug("purge: %s %s", purge, type(purge))
-    common_util.run_injest(purge=purge)
+    LOGGER.debug("refreshdb: %s, %s", refreshdb, type(refreshdb))
+    common_util.run_injest(purge=purge, refreshdb=refreshdb)
 
 
 if __name__ == "__main__":

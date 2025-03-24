@@ -4,8 +4,6 @@ Abstract base class for database operations.
 
 from __future__ import annotations
 
-import datetime
-import decimal
 import logging
 import os
 import pathlib
@@ -13,7 +11,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import app_paths
 import constants
 import pandas as pd
 import psycopg2
@@ -24,7 +21,9 @@ from env_config import ConnectionParameters
 from oracledb.exceptions import DatabaseError as OracleDatabaseError
 
 if TYPE_CHECKING:
+    import app_paths
     import oradb_lib
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -140,6 +139,24 @@ class DB(ABC):
         :raises NotImplementedError: _description_
         """
         raise NotImplementedError
+
+    def get_row_count(self, table_name: str) -> int:
+        """
+        Return the number of rows that exist in the table.
+
+        :param table_name: name of table to be queried
+        :type table_name: str
+        :return: number of rows in the table
+        :rtype: int
+        """
+        query = f"select count(*) from {self.schema_2_sync}.{table_name}"  # noqa: S608
+        cur = self.connection.cursor()
+        cur.execute(query)
+        record = cur.fetchone()
+        cur.close()
+        row_cnt = record[0]
+        LOGGER.debug("table %s row count: %s", table_name, row_cnt)
+        return row_cnt
 
     @abstractmethod
     def populate_db_type(self) -> None:
@@ -474,7 +491,7 @@ class DB(ABC):
         table: str,
         import_file: pathlib.Path,
         *,
-        purge: bool = False,
+        refreshdb: bool = False,
     ) -> None:
         """
         Load the data from the file into the table.
@@ -486,7 +503,8 @@ class DB(ABC):
         :type table: str
         :param import_file: the file to read the data from
         :type import_file: str
-        :param purge: if True, delete the data from the table before loading.
+        :param refreshdb: if True then truncate the tables before attempting
+            load.  Otherwise only load if table is empty.
         :type purge: bool
         """
         # debugging to view the data before it gets loaded
@@ -494,58 +512,42 @@ class DB(ABC):
         LOGGER.debug("table: %s", table)
 
         self.get_sqlalchemy_engine()
-        if purge:
+        if refreshdb:
             self.truncate_table(table.lower())
         LOGGER.debug("loading data to table: %s", table)
         if self.db_type == constants.DBType.OC_POSTGRES:
             method = "multi"
         elif self.db_type == constants.DBType.ORA:
             method = None
-        with (
-            self.sql_alchemy_engine.connect() as connection,
-            connection.begin(),
-        ):
-            LOGGER.debug("reading parquet file, %s", import_file)
-            parquet_reader = pyarrow.parquet.ParquetFile(import_file)
-            iter_cnt = 1
 
-            for batch in parquet_reader.iter_batches(
-                batch_size=self.chunk_size,
+        # only load the table if it is empty
+        if not self.get_row_count(table_name=table):
+            with (
+                self.sql_alchemy_engine.connect() as connection,
+                connection.begin(),
             ):
-                end_row_cnt = iter_cnt * self.chunk_size
-                start_row_cnt = end_row_cnt - self.chunk_size
-                LOGGER.debug(
-                    "writing rows from %s to %s", start_row_cnt, end_row_cnt
-                )
-                df = batch.to_pandas()
-                data_schema = self.get_pyarrow_schema()
-                df.to_sql(
-                    table.lower(),
-                    self.sql_alchemy_engine,
-                    schema=self.schema_2_sync,
-                    if_exists="append",
-                    index=False,
-                    method=method,
-                    # encoding="utf-8",
-                )
-                iter_cnt += 1
+                LOGGER.debug("reading parquet file, %s", import_file)
+                parquet_reader = pyarrow.parquet.ParquetFile(import_file)
+                iter_cnt = 1
 
-            # pandas_df = pd.read_parquet(import_file)
-
-            # LOGGER.debug("done loading dataframe.")
-
-            # LOGGER.debug("loading table %s", table)
-            # pandas_df.to_sql(
-            #     table.lower(),
-            #     self.sql_alchemy_engine,
-            #     schema=self.schema_2_sync,
-            #     if_exists="append",
-            #     index=False,
-            #     method=method,
-            #     chunksize=self.chunk_size,
-            #     # encoding="utf-8",
-            # )
-            # LOGGER.debug("done")
+                for batch in parquet_reader.iter_batches(
+                    batch_size=self.chunk_size,
+                ):
+                    end_row_cnt = iter_cnt * self.chunk_size
+                    start_row_cnt = end_row_cnt - self.chunk_size
+                    LOGGER.debug(
+                        "writing rows from %s to %s", start_row_cnt, end_row_cnt
+                    )
+                    df = batch.to_pandas()
+                    df.to_sql(
+                        table.lower(),
+                        self.sql_alchemy_engine,
+                        schema=self.schema_2_sync,
+                        if_exists="append",
+                        index=False,
+                        method=method,
+                    )
+                    iter_cnt += 1
 
         # now verify data
         sql = "Select count(*) from {schema}.{table}"
@@ -557,6 +559,7 @@ class DB(ABC):
             LOGGER.error("no rows loaded to table %s", table)
         LOGGER.debug("rows loaded to table %s are:  %s", table, rows_loaded)
         cur.close()
+        self.connection.commit()
 
     def check_utf8(self, value):
         try:
@@ -582,6 +585,7 @@ class DB(ABC):
         retries: int = 1,
         *,
         purge: bool = False,
+        refreshdb: bool = False,
     ) -> None:
         """
         Load data defined in table_list.
@@ -612,6 +616,8 @@ class DB(ABC):
         :param purge: If set to true the script will truncate the table before
             it attempt a load, defaults to False
         :type purge: bool, optional
+        :param refreshdb: if set to true will truncate the tables before the
+            load starts. Otherwise only empty tables (0 rows) will be loaded.
         :raises sqlalchemy.exc.IntegrityError: If unable to resolve instegrity
             constraints the method will raise this error
         """
@@ -636,7 +642,7 @@ class DB(ABC):
 
             LOGGER.info("Importing table %s %s", spaces, table)
             try:
-                self.load_data(table, import_file, purge=purge)
+                self.load_data(table, import_file, refreshdb=refreshdb)
             except (
                 sqlalchemy.exc.IntegrityError,
                 OracleDatabaseError,

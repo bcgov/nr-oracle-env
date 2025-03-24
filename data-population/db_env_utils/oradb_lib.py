@@ -19,11 +19,13 @@ import datetime
 import json
 import logging
 import logging.config
+import pathlib
 import re
 from typing import TYPE_CHECKING
 
 import constants
 import db_lib
+import duckdb
 import env_config
 import geopandas as gpd
 import numpy
@@ -247,8 +249,6 @@ class OracleDatabase(db_lib.DB):
         self,
         table: str,
         import_file: pathlib.Path,
-        *,
-        purge: bool = False,  # noqa: ARG002
     ) -> None:
         """
         Load data from a geoparquet file.
@@ -262,19 +262,25 @@ class OracleDatabase(db_lib.DB):
         :type purge: bool, optional
         """
         self.get_connection()  # implement as a decorator!
+
         cursor = self.connection.cursor()
         cursor.arraysize = self.ora_cur_arraysize
 
         spatial_column = self.get_geoparquet_spatial_column(import_file)
         spatial_column_wkt = spatial_column + "_wkt"
+        spatial_column_wkb = spatial_column + "_wkb"
         LOGGER.debug("spatial_column is: %s", spatial_column)
-        LOGGER.debug("spatial_column wkt is: %s", spatial_column_wkt)
+        # LOGGER.debug("spatial_column wkt is: %s", spatial_column_wkt)
 
         gdf = gpd.read_parquet(import_file)
 
         gdf[spatial_column_wkt] = gdf[spatial_column].apply(
             lambda x: shapely.wkt.dumps(x) if x else None,
         )
+        gdf[spatial_column_wkb] = gdf[spatial_column].apply(
+            lambda x: shapely.wkb.dumps(x) if x else None,
+        )
+
         # patch the nan to None in the df
         gdf = gdf.replace({numpy.nan: None})
 
@@ -288,7 +294,10 @@ class OracleDatabase(db_lib.DB):
         value_param_list = []
         for column in columns:
             if column in spatial_columns:
-                value_param_list.append(f"SDO_GEOMETRY(:{column}, 3005)")
+                # value_param_list.append(f"SDO_GEOMETRY(:{column}, 3005)")
+                value_param_list.append(
+                    f"SDO_UTIL.FROM_WKBGEOMETRY(TO_BLOB(:{column}), 3005)"
+                )
             else:
                 value_param_list.append(f":{column}")
         column_value_str = ", ".join(value_param_list)
@@ -297,40 +306,48 @@ class OracleDatabase(db_lib.DB):
             VALUES ({column_value_str})
         """  # noqa: S608
         LOGGER.debug("statement: %s", insert_stmt)
+        LOGGER.debug("Loading data...")
+        rowcnt = 0
         for index, row in gdf.iterrows():
             data_dict = {}
-            LOGGER.debug("row %s", row)
+            # LOGGER.debug("row %s", row)
             for column in columns:
                 if column.lower() == spatial_column.lower():
                     log_msg = (
                         "dealing with spatial column: %s "
                         "gdf column: %s data: %s"
                     )
-                    LOGGER.debug(
-                        log_msg,
-                        column,
-                        spatial_column_wkt,
-                        row[spatial_column_wkt],
-                    )
-                    data_dict[column] = row[spatial_column_wkt]
+                    # LOGGER.debug(
+                    #     log_msg,
+                    #     column,
+                    #     spatial_column_wkt,
+                    #     row[spatial_column_wkt],
+                    # )
+                    # data_dict[column] = row[spatial_column_wkt]
+                    # cursor.var(oracledb.BLOB)
+                    # data_dict[column] = row[spatial_column_wkb]
+                    blob_var = cursor.var(oracledb.BLOB)
+                    blob_var.setvalue(0, row[spatial_column_wkt])
+                    # blob_vars.append(blob_var)
+                    data_dict[column] = blob_var
                 else:
-                    LOGGER.debug(
-                        "row value:%s - %s",
-                        column,
-                        row[column.lower()],
-                    )
                     data_dict[column] = row[column.lower()]
-            LOGGER.debug("write record: %s", index)
-            LOGGER.debug("data_dict: %s", data_dict)
+            # LOGGER.debug("write record: %s", index)
+            # LOGGER.debug("data_dict: %s", data_dict)
             cursor.execute(insert_stmt, data_dict)
+            rowcnt += 1
+            if not rowcnt % 1000:
+                LOGGER.debug("   inserted rows: %s", 1000 * row)
+
         cursor.close()
+        self.connection.commit()
 
     def load_data(
         self,
         table: str,
         import_file: pathlib.Path,
         *,
-        purge: bool = False,
+        refreshdb: bool = False,
     ) -> None:
         """
         Load the data from the file into the table.
@@ -344,34 +361,38 @@ class OracleDatabase(db_lib.DB):
         :type table: str
         :param import_file: the file to read the data from
         :type import_file: str
-        :param purge: if True, delete the data from the table before loading.
-        :type purge: bool
+        :param refreshdb: if True, delete the data from the table before loading.
+        :type refreshdb: bool
         """
         self.get_connection()
+        if refreshdb:
+            self.truncate_table(table=table)
+        dest_tab_rows = self.get_row_count(table)
+        LOGGER.debug("table: %s has %s rows", table, dest_tab_rows)
 
-        if self.is_geoparquet(import_file):
-            LOGGER.info("geoparquet table: %s", table)
-            LOGGER.info("forking to use the SDO_GEOMETRY loader")
-            self.load_data_geoparquet(
-                table=table,
-                import_file=import_file,
-                purge=purge,
-            )
-        elif self.has_raw_columns(table) or self.has_blob(table):
-            self.load_data_with_raw_blobby(
-                table=table,
-                import_file=import_file,
-                purge=purge,
-            )
-        else:
-            LOGGER.debug(
-                "regular parquet file... passing to super class method",
-            )
-            super().load_data(
-                table,
-                import_file,
-                purge=purge,
-            )
+        # only load data if its a zero row count.
+        if not dest_tab_rows:
+            if self.is_geoparquet(import_file):
+                LOGGER.info("geoparquet table: %s", table)
+                LOGGER.info("forking to use the SDO_GEOMETRY loader")
+                self.load_data_geoparquet(
+                    table=table,
+                    import_file=import_file,
+                )
+            elif self.has_raw_columns(table) or self.has_blob(table):
+                self.load_data_with_raw_blobby(
+                    table=table,
+                    import_file=import_file,
+                )
+            else:
+                LOGGER.debug(
+                    "regular parquet file... passing to super class method",
+                )
+                super().load_data(
+                    table,
+                    import_file,
+                    refreshdb=refreshdb,
+                )
 
     def load_data_delete(
         self,
@@ -428,7 +449,7 @@ class OracleDatabase(db_lib.DB):
         env_str: str,
         retries: int = 1,
         *,
-        purge: bool = False,
+        refreshdb: bool = False,
     ) -> None:
         """
         Load data defined in table_list.
@@ -462,6 +483,7 @@ class OracleDatabase(db_lib.DB):
         :raises sqlalchemy.exc.IntegrityError: If unable to resolve instegrity
             constraints the method will raise this error
         """
+
         cons_list = self.get_fk_constraints()
         self.disable_fk_constraints(cons_list)
 
@@ -481,7 +503,7 @@ class OracleDatabase(db_lib.DB):
             )
             LOGGER.info("Importing table %s %s", spaces, table)
             try:
-                self.load_data(table, import_file, purge=purge)
+                self.load_data(table, import_file, refreshdb=refreshdb)
             except (
                 sqlalchemy.exc.IntegrityError,
                 sqlalchemy.exc.DatabaseError,
@@ -494,10 +516,13 @@ class OracleDatabase(db_lib.DB):
                 )
                 LOGGER.info("Adding %s to failed tables", table)
                 failed_tables.append(table)
+
                 LOGGER.info("truncating failed load table: %s", table)
                 self.truncate_table(table=table.lower())
 
         if failed_tables:
+            # for failed tables the data will have already been truncated so
+            # can run as refreshdb=False.
             if retries < self.max_retries:
                 LOGGER.info("Retrying failed tables")
                 retries += 1
@@ -506,7 +531,7 @@ class OracleDatabase(db_lib.DB):
                     data_dir=data_dir,
                     env_str=env_str,
                     retries=retries,
-                    purge=purge,
+                    refreshdb=False,
                 )
             else:
                 LOGGER.error("Max retries reached for table %s", table)
@@ -1097,6 +1122,93 @@ class OracleDatabase(db_lib.DB):
         schema = pyarrow.schema([(col[0], col[1]) for col in schema_map])
         return schema
 
+    def extract_data_sdogeometry_ddb(
+        self,
+        table: str,
+        export_file: pathlib.Path,
+        *,
+        overwrite: bool = False,  # noqa: ARG002
+        chunk_size: int = 25000,
+        max_records: int = 0,
+    ):
+        self.get_sqlalchemy_engine()
+        self.get_connection()
+        spatial_columns = self.get_sdo_geometry_columns(table)
+
+        if len(spatial_columns) > 1:
+            msg = "only one spatial column is supported"
+            raise ValueError(msg)
+        spatial_col = spatial_columns[0]
+        query = self.generate_sdo_query(table)
+        LOGGER.debug("spatial query: %s", query)
+
+        temp_ddb_db = self.app_paths.get_temp_duckdb_path()
+        if temp_ddb_db.exists():
+            temp_ddb_db.unlink()
+
+        ddb_con = duckdb.connect(database=temp_ddb_db)
+        ddb_con.install_extension("spatial")
+        ddb_con.load_extension("spatial")
+        ddb_con.execute(f"SET memory_limit='{constants.DUCK_DB_MEM_LIM}'")
+        itercnt = 0
+        first = True
+        df_cols = None
+        for chunk in pd.read_sql(
+            query,
+            self.sql_alchemy_engine,
+            chunksize=chunk_size,
+        ):
+            chunk[spatial_col.lower()] = chunk[spatial_col.lower()].apply(
+                shapely.wkt.loads
+            )
+            chunk[spatial_col.lower()] = chunk[spatial_col.lower()].apply(
+                shapely.wkb.dumps
+            )
+            df_cols = chunk.columns
+
+            if first:
+                # chunk.to_sql(table, ddb_con, if_exists="replace", index=False)
+                LOGGER.debug(
+                    "creating the table, writing first chunk: %s", chunk_size
+                )
+                ddb_con.sql("CREATE TABLE my_table AS SELECT * FROM chunk")
+                first = False
+            else:
+                # chunk.to_sql(table, ddb_con, if_exists="append", index=False)
+                # insert into the table "my_table" from the DataFrame "my_df"
+                LOGGER.debug(
+                    "writing chunk to the table (chunk/chunk_size), (%s/%s)",
+                    itercnt + 1,
+                    (itercnt + 1) * chunk_size,
+                )
+                ddb_con.sql("INSERT INTO my_table SELECT * FROM chunk")
+            if (max_records) and itercnt * chunk_size > max_records:
+                break
+            itercnt += 1
+
+        # now write to geoparquet
+        LOGGER.debug("write to parquet...")
+        fix_cols = []
+        for col in df_cols:
+            if col.lower() == spatial_col.lower():
+                fix_cols.append(
+                    f"ST_GeomFromWKB({spatial_col}) AS {spatial_col}"
+                )
+            else:
+                fix_cols.append(col)
+        ddb_2_parquet_query_str = f"""
+            COPY (select {", ".join(fix_cols)} FROM my_table)
+            TO '{export_file}' (FORMAT PARQUET);
+        """
+        LOGGER.debug(ddb_2_parquet_query_str)
+        LOGGER.info("writing to parquet file: %s", export_file)
+        ddb_con.sql(ddb_2_parquet_query_str)
+        LOGGER.debug("file has been extracted!")
+        ddb_con.close()
+        if export_file.exists() and temp_ddb_db.exists():
+            LOGGER.debug("remove the temporary duck db file: %s", temp_ddb_db)
+        return True
+
     def extract_data_sdogeometry(
         self,
         table: str,
@@ -1316,23 +1428,40 @@ class OracleDatabase(db_lib.DB):
         :type spatial_col: str
         """
         LOGGER.debug("    converting df to gdf...")
-        gdf = gpd.GeoDataFrame(
-            df,
-            geometry=gpd.GeoSeries.from_wkt(
-                df[spatial_col.lower()],
-            ),
-            crs="EPSG:3005",
-        )
+        # gdf = gpd.GeoDataFrame(
+        #     df,
+        #     geometry=gpd.GeoSeries.from_wkt(
+        #         df[spatial_col.lower()],
+        #     ),
+        #     crs="EPSG:3005",
+        # )
 
-        # Convert to Shapely geometries
-        gdf[spatial_col.lower()] = gdf[spatial_col.lower()].apply(
-            shapely.wkb.dumps
-        )
-        LOGGER.debug("gdf columns: %s", gdf.columns)
+        # # Convert to Shapely geometries
+        # gdf[spatial_col.lower()] = gdf[spatial_col.lower()].apply(
+        #     shapely.wkb.dumps
+        # )
 
-        tabletmp = pyarrow.Table.from_pandas(gdf)
+        # trying to hack the geopandas dataframe without using geopandas
+        # rely on the metadata to inform that geopandas
+
+        # convert from WKT to WKB
+        LOGGER.debug("df types: %s", df.dtypes)
+        LOGGER.debug("sample spatial data: %s", df[spatial_col.lower()].head(5))
+        # df[spatial_col.lower()] = df[spatial_col.lower()].apply(
+        #     shapely.wkt.loads
+        # )
+        # df[spatial_col.lower()] = df[spatial_col.lower()].apply(
+        #     shapely.wkb.dumps
+        # )
+        if not isinstance(df[spatial_col.lower()].head(1)[0], bytes):
+            LOGGER.debug("convert to WKB")
+            df[spatial_col.lower()] = df[spatial_col.lower()].apply(
+                lambda x: shapely.wkb.dumps(shapely.wkt.loads(x))
+            )
+
+        tabletmp = pyarrow.Table.from_pandas(df)
         LOGGER.debug("pyarrow schema: %s", tabletmp.schema)
-        table = pyarrow.Table.from_pandas(gdf, pyarrow_schema)
+        table = pyarrow.Table.from_pandas(df, pyarrow_schema)
         # Convert the GeoDataFrame to a PyArrow Table
         return table
 
@@ -1367,7 +1496,9 @@ class OracleDatabase(db_lib.DB):
         if self.has_sdo_geometry(table):
             LOGGER.info("table %s has SDO_GEOMETRY column", table)
             LOGGER.info("forking to use the SDO_GEOMETRY extractor")
-            file_created = self.extract_data_sdogeometry(
+            # extract_data_sdogeometry_ddb
+            # file_created = self.extract_data_sdogeometry(
+            file_created = self.extract_data_sdogeometry_ddb(
                 table=table,
                 export_file=export_file,
                 overwrite=overwrite,
@@ -1489,11 +1620,11 @@ class OracleDatabase(db_lib.DB):
         if b"geo" in metadata.metadata:
             LOGGER.debug("input parquet is geo! %s", parquet_file_path)
             is_geo_parquet = True
-        if not is_geo_parquet:
-            gdf = gpd.read_parquet(parquet_file_path)
-            # Check if the DataFrame has a geometry column
-            if isinstance(gdf, gpd.GeoDataFrame) and gdf.geometry is not None:
-                is_geo_parquet = True
+        # if not is_geo_parquet:
+        #     gdf = gpd.read_parquet(str(parquet_file_path))
+        #     # Check if the DataFrame has a geometry column
+        #     if isinstance(gdf, gpd.GeoDataFrame) and gdf.geometry is not None:
+        #         is_geo_parquet = True
 
         return is_geo_parquet
 
@@ -1522,8 +1653,6 @@ class OracleDatabase(db_lib.DB):
         self,
         table: str,
         import_file: pathlib.Path,
-        *,
-        purge: bool = False,
     ) -> None:
         """
         Load data from parquet file to oracle table with BLOB columns.
@@ -1543,8 +1672,6 @@ class OracleDatabase(db_lib.DB):
         total_rows_read = 0
 
         # delete records if necessary
-        if purge:
-            self.truncate_table(table.lower())
         LOGGER.debug("loading data to table: %s", table)
         with (
             self.sql_alchemy_engine.connect() as connection,
@@ -1590,17 +1717,18 @@ class OracleDatabase(db_lib.DB):
                 iter_cnt += 1
 
         # now verify data load
-        sql = f"Select count(*) from {self.schema_2_sync}.{table}"  # noqa: S608
-        LOGGER.debug("verify sql: %s", sql)
-        cur = self.connection.cursor()
-        cur.execute(sql.format(schema=self.schema_2_sync, table=table))
-        result = cur.fetchall()
-        rows_loaded = result[0][0]
+        self.connection.commit()
+        rows_loaded = self.get_row_count(table_name=table)
+
         if not rows_loaded:
             LOGGER.error("no rows loaded to table %s", table)
         LOGGER.info("rows loaded to table %s are:  %s", table, rows_loaded)
         LOGGER.info("rows in parquet file: %s", total_rows_read)
-        cur.close()
+        if rows_loaded != total_rows_read:
+            LOGGER.warning(
+                "discrepancy between source and dest data for table: %s",
+                table,
+            )
 
 
 class FixOracleSequences:

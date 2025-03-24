@@ -375,7 +375,7 @@ class PostgresDatabase(db_lib.DB):
         table: str,
         import_file: pathlib.Path,
         *,
-        purge: bool = False,
+        refreshdb: bool = False,
     ) -> None:
         """
         Load the data from the file into the table.
@@ -392,7 +392,9 @@ class PostgresDatabase(db_lib.DB):
         """
         # debugging to view the data before it gets loaded
         LOGGER.debug("input file to load: %s", import_file)
-        LOGGER.debug("purge not implemented yet... recieved value: %s", purge)
+        LOGGER.debug(
+            "refreshdb not implemented yet... recieved value: %s", refreshdb
+        )
         if not import_file.exists():
             LOGGER.error("sql dump file not found: %s", import_file)
             raise FileNotFoundError
