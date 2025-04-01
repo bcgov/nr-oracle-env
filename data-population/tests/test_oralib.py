@@ -13,7 +13,7 @@ import pandas
 LOGGER = logging.getLogger(__name__)
 
 
-def test_get_triggers_with_sequnces(docker_connection_params_ora):
+def test_get_triggers_with_sequences(docker_connection_params_ora):
     """
     Verify sequences can be fixed.
     """
@@ -505,9 +505,19 @@ def test_load_sdo_data(db_connection_fixture):
     ora = db_connection_fixture
 
     table = "FOREST_COVER_GEOMETRY"
-    parquet_file = (
-        pathlib.Path(__file__).parent / "test_data" / f"{table}.parquet"
-    )
 
+    parquet_file = (
+        pathlib.Path(__file__).parent
+        / ".."
+        / "data"
+        / "PROD"
+        / "ORA"
+        / f"{table}.parquet"
+    )
+    # parquet_file = (
+    #     pathlib.Path(__file__).parent / "test_data" / f"{table}.parquet"
+    # )
+    LOGGER.debug("source file: %s", parquet_file)
     ora.get_connection()
-    ora.load_data(table=table, import_file=parquet_file)
+
+    ora.load_data_geoparquet(table=table, import_file=parquet_file)

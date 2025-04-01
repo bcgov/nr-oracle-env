@@ -380,6 +380,51 @@ class DB(ABC):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    def has_masked_data(self, table_name: str) -> bool:
+        """
+        Check if the table has masked data.
+
+        :param table_name: the name of the table to check for masked data
+        :type table_name: str
+        :return: True if the table has masked data, False if it does not
+        :rtype: bool
+        """
+        raise NotImplementedError
+
+    def mask_select_obj(
+        self, table_obj: sqlalchemy.Table
+    ) -> sqlalchemy.sql.selectable.Select:
+        """
+        Return a select statement that will mask sensitive data.
+
+        Sensitive data is defined in the constants.DATA_TO_MASK list.  This
+        information is read to identify columns that need to be masked.  The
+        select object that extracts this data from the database will then use
+        this information to mask the data.
+
+        :param table_obj: input sql alchemy table object that contains columns
+            that need to be masked.
+        :type table_obj: sqlalchemy.Table
+        :return: a select statement that will nullify any masked data.  The
+            mask values will be applied on load.
+        :rtype: sqlalchemy.sql.selectable.Select
+        """
+        # select_obj = sqlalchemy.select(table_obj)
+        columns_to_mask = [
+            mask_meta_data.column.upper()
+            for mask_meta_data in constants.DATA_TO_MASK
+            if mask_meta_data.table_name.upper() == table_obj.name.upper()
+        ]
+        select_stmt_columns = []
+        for col in table_obj.columns:
+            if col.name.upper() in columns_to_mask:
+                select_stmt_columns.append(sqlalchemy.null().label(col.name))
+            else:
+                select_stmt_columns.append(col)
+        select_stmt = table_obj.select().with_only_columns(select_stmt_columns)
+        return select_stmt
+
     def extract_data(
         self,
         table: str,
@@ -413,10 +458,15 @@ class DB(ABC):
         export_file.parent.mkdir(parents=True, exist_ok=True)
         LOGGER.debug("export file: %s", export_file)
         if not export_file.exists() or overwrite:
+            self.get_sqlalchemy_engine()
             table_obj = self.get_table_object(table)
             pyarrow_schema = self.get_pyarrow_schema(table_obj)
 
             select_obj = sqlalchemy.select(table_obj)
+            if self.has_masked_data(table_name=table):
+                select_obj = self.mask_select_obj(table_obj)
+
+            LOGGER.debug("select object: %s", select_obj)
 
             if export_file.exists():
                 # delete the local file if it exists as only gets here if
@@ -424,7 +474,6 @@ class DB(ABC):
                 export_file.unlink()
             LOGGER.debug("data_query_sql: %s", select_obj)
             LOGGER.debug("reading the %s", table)
-            self.get_sqlalchemy_engine()
 
             itercnt = 1
 
@@ -774,3 +823,70 @@ class DB(ABC):
                     params=None,
                     orig=None,
                 )
+
+
+class DataMasking:
+    """
+    Data masking class.
+    """
+
+    def __init__(self):
+        self.masked_data = constants.DATA_TO_MASK
+
+    def get_masked_tables(self) -> list[str]:
+        """
+        Return a list of masked tables.
+        """
+        return [
+            mask_meta_data.table_name for mask_meta_data in self.masked_data
+        ]
+
+    def get_masked_columns(self, table_name: str) -> list[str]:
+        """
+        Return a list of masked columns.
+
+        :param table_name: input table who's columns that should be masked will
+            be returned.
+        :type table_name: str
+        :return: list of columns for the given table that should be masked.
+        :rtype: list[str]
+        """
+        return [
+            mask_meta_data.column_name
+            for mask_meta_data in self.masked_data
+            if mask_meta_data.table_name.upper() == table_name.upper()
+        ]
+
+    def has_masked_data(self, table_name: str) -> bool:
+        """
+        Check if the table has masked data.
+
+        :param table_name: name of table to check for masked data.
+        :type table_name: str
+        :return: True if the table has masked data, False if it does not.
+        :rtype: bool
+        """
+        return any(
+            mask_meta_data.table_name.upper() == table_name.upper()
+            for mask_meta_data in self.masked_data
+        )
+
+    def get_mask_dummy_val(self, data_type: constants.ORACLE_TYPES) -> str:
+        """
+        Return the dummy value for the data type.
+
+        Recieves an oracle type like VARCHAR2, NUMBER, etc. and returns a dummy
+        value that will go into the cells for this column that will be used
+        to indicate that a particular column has been masked.
+
+        :param data_type: the data type of the column to be masked
+        :type data_type: constants.ORACLE_TYPES
+        :return: the dummy value for the data type
+        :rtype: str
+        """
+        if data_type not in constants.OracleMaskValuesMap:
+            raise ValueError(  # noqa: TRY003
+                f"data type %s not in OracleMaskValuesMap",
+                str(data_type),
+            )
+        return constants.OracleMaskValuesMap[data_type]

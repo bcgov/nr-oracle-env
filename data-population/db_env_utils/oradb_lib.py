@@ -310,30 +310,17 @@ class OracleDatabase(db_lib.DB):
         rowcnt = 0
         for index, row in gdf.iterrows():
             data_dict = {}
-            # LOGGER.debug("row %s", row)
             for column in columns:
                 if column.lower() == spatial_column.lower():
                     log_msg = (
                         "dealing with spatial column: %s "
                         "gdf column: %s data: %s"
                     )
-                    # LOGGER.debug(
-                    #     log_msg,
-                    #     column,
-                    #     spatial_column_wkt,
-                    #     row[spatial_column_wkt],
-                    # )
-                    # data_dict[column] = row[spatial_column_wkt]
-                    # cursor.var(oracledb.BLOB)
-                    # data_dict[column] = row[spatial_column_wkb]
                     blob_var = cursor.var(oracledb.BLOB)
                     blob_var.setvalue(0, row[spatial_column_wkt])
-                    # blob_vars.append(blob_var)
                     data_dict[column] = blob_var
                 else:
                     data_dict[column] = row[column.lower()]
-            # LOGGER.debug("write record: %s", index)
-            # LOGGER.debug("data_dict: %s", data_dict)
             cursor.execute(insert_stmt, data_dict)
             rowcnt += 1
             if not rowcnt % 1000:
@@ -494,7 +481,15 @@ class OracleDatabase(db_lib.DB):
         failed_tables = []
         LOGGER.debug("table list: %s", table_list)
         LOGGER.debug("retries: %s", retries)
+        tables_2_skip = [
+            "FOREST_COVER_GEOMETRY",
+            "STOCKING_STANDARD_GEOMETRY",
+        ]
+
         for table in table_list:
+            if table.upper() in tables_2_skip:
+                LOGGER.warning("skipping the import of the table %s", table)
+                continue
             spaces = " " * retries * 2
             import_file = self.app_paths.get_parquet_file_path(
                 table,
@@ -972,7 +967,7 @@ class OracleDatabase(db_lib.DB):
         blob_field = cursor.fetchone()
         return blob_field is not None
 
-    def get_column_list(self, table: str) -> list[str]:
+    def get_column_list(self, table: str, with_type: bool = False) -> list[str]:
         """
         Get the list of columns for the table.
 
@@ -985,7 +980,7 @@ class OracleDatabase(db_lib.DB):
         cursor = self.connection.cursor()
         query = """
         SELECT
-            column_name
+            column_name, data_type
         FROM
             all_tab_cols
         WHERE
@@ -1003,7 +998,14 @@ class OracleDatabase(db_lib.DB):
             table_name=table.upper(),
             schema_name=self.schema_2_sync.upper(),
         )
-        columns = [row[0] for row in cursor]
+        results = cursor.fetchall()
+        columns = [row[0].upper() for row in results]
+        if with_type:
+            columns = [
+                [row[0].upper(), constants.ORACLE_TYPES[row[1]]]
+                for row in results
+            ]
+
         LOGGER.debug("columns: %s", columns)
         return columns
 
@@ -1022,6 +1024,7 @@ class OracleDatabase(db_lib.DB):
         column_list = self.get_column_list(table)
         geometry_columns = self.get_sdo_geometry_columns(table)
         column_with_wkb_func = []
+
         for column in column_list:
             if column in geometry_columns:
                 column_with_wkb_func.append(
@@ -1036,6 +1039,53 @@ class OracleDatabase(db_lib.DB):
             f"{self.schema_2_sync.upper()}.{table.upper()}"
         )
         LOGGER.debug("sdo query: %s", query)
+        return query
+
+    def generate_extract_sql_query(self, table: str) -> str:
+        """
+        Return a sql query to extract the table with.
+
+        The query addresses the following conditions:
+        * blob data is not copied and is replaced with EMPTY_BLOB() as <column>
+        * sdo geometry is converted to wkt
+        * if columns have been defined as sensitive then they are not extracted
+            and are replaced with nulls if nulls and placeholder if not.
+            placeholder values are dependent on data type.  For example
+            varchar will get '1' nums 1 etc..
+
+        :param table: input table to generate the table for
+        :type table: str
+        :return: a query that can be used to extract the data in the table.
+        :rtype: str
+        """
+        mask_obj = db_lib.DataMasking()
+        mask_columns = mask_obj.get_masked_columns(table_name=table)
+
+        column_list = self.get_column_list(table, with_type=True)
+        blob_columns = self.get_blob_columns(table)
+        sdo_geometry_columns = self.get_sdo_geometry_columns(table)
+
+        select_column_list = []
+
+        for column in column_list:
+            column_name = column[0]
+            column_type = column[1]
+            if column_name in blob_columns:
+                select_column_list.append(
+                    f"EMPTY_BLOB() AS {column}",
+                )
+            elif column_name in sdo_geometry_columns:
+                select_column_list.append(
+                    f"SDO_UTIL.TO_WKTGEOMETRY({column}) AS {column}",
+                )
+            elif column_name in mask_columns:
+                mask_dummy_val = mask_obj.get_mask_dummy_val(column_type)
+                select_column_list.append(f"{mask_dummy_val} AS {column_name}")
+        query = (
+            f"SELECT {', '.join(select_column_list)} from "  # noqa: S608
+            f"{self.schema_2_sync}.{table}"
+        )
+        LOGGER.debug("query: %s", query)
         return query
 
     def generate_blob_query(self, table: str) -> str:
@@ -1412,6 +1462,43 @@ class OracleDatabase(db_lib.DB):
             itercnt += 1
         writer.close()
         return True
+
+    def get_table_columns(self, table: str) -> list[str]:
+        """
+        Get the columns for the table.
+
+        :param table: the table to get the columns for
+        :type table: str
+        :return: a list of the columns for the table
+        :rtype: list[str]
+        """
+        query = (
+            "SELECT column_name FROM  ALL_TAB_COLUMNS WHERE "
+            f"owner = '{self.schema_2_sync}' AND TABLE_NAME = '{table}'"
+        )
+        cur = self.connection.cursor()
+        cur.execute(cur)
+        results = cur.fetchall()
+        return [row[0] for row in results]
+
+    def has_masked_data(self, table: str) -> bool:
+        """
+        Identify if the table has any columns of type RAW.
+
+        :param table: input table name
+        :type table: str
+        :return: boolean that indicates if the table has any RAW defined
+                 columns
+        :rtype: bool
+        """
+        mask_table = [
+            mask_descriptor.table_name.upper()
+            for mask_descriptor in constants.DATA_TO_MASK
+            if mask_descriptor.table_name.upper() == table.upper()
+        ]
+        if mask_table:
+            return True
+        return False
 
     def df_to_gdf(
         self, df: pd.DataFrame, spatial_col: str, pyarrow_schema: pyarrow.Schema
@@ -2167,3 +2254,221 @@ class DataFrameFast(pd.DataFrame):
                 if isinstance(table_data[i][j], bytes):
                     table_data[i][j] = table_data[i][j].hex()
         return table_data
+
+
+class Extractor:
+    """
+    Extraction specific logic / code.
+    """
+
+    def __init__(
+        self,
+        table_name: str,
+        db_schema: str,
+        oradb: OracleDatabase,
+        export_file: pathlib.Path,
+    ):
+        self.table_name = table_name
+        self.db_schema = db_schema
+        self.oradb = oradb
+        self.export_file = export_file
+
+        # make sure there is a connection to the database
+        self.oradb.get_sqlalchemy_engine()
+        self.oradb.get_connection()
+
+        # example of how to get dbapi connection from the engine
+        # connection = engine.connect()
+        # dbapi_conn = connection.connection
+
+    def log_mask_config(self):
+        LOGGER.debug("const data mask: %s", constants.DATA_TO_MASK)
+
+    def extract(
+        self,
+        export_file: pathlib.Path,
+        *,
+        overwrite: bool = False,  # noqa: ARG002
+        chunk_size: int = 25000,
+        max_records: int = 0,
+    ):
+        # identify if spatial data
+        spatial_columns = self.oradb.get_sdo_geometry_columns(self.table_name)
+        if len(spatial_columns) > 1:
+            msg = "only one spatial column is supported"
+            raise ValueError(msg)
+        spatial_col = None
+        if spatial_columns:
+            spatial_col = spatial_columns[0]
+        query = self.generate_extract_sql_query()
+
+        ddb_util = DuckDbUtil(export_file, self.table_name)
+        # handle the duck db init
+        # ddb_con = duckdb.connect(database=export_file)
+        chunk_cnt = 0
+        first = True
+        df_cols = None
+        for chunk in pd.read_sql(
+            query,
+            self.oradb.sql_alchemy_engine,
+            chunksize=chunk_size,
+        ):
+            # handle spatial
+            if spatial_col:
+                # convert spatial from wkt to wkb
+                chunk[spatial_col.lower()] = chunk[spatial_col.lower()].apply(
+                    shapely.wkt.loads,
+                )
+                chunk[spatial_col.lower()] = chunk[spatial_col.lower()].apply(
+                    shapely.wkb.dumps,
+                )
+                # df_cols = chunk.columns
+
+            if first:
+                # chunk.to_sql(table, ddb_con, if_exists="replace", index=False)
+                LOGGER.debug(
+                    "creating the table, writing first chunk: %s", chunk_size
+                )
+                ddb_util.create_and_write_chunk(chunk)
+                first = False
+            else:
+                LOGGER.debug(
+                    "writing chunk to the table (chunk/chunk_size), (%s/%s)",
+                    chunk_cnt + 1,
+                    (chunk_cnt + 1) * chunk_size,
+                )
+                ddb_util.insert_chunk(chunk)
+            if (max_records) and chunk_cnt * chunk_size > max_records:
+                break
+            chunk_cnt += 1
+        return True
+
+    def generate_extract_sql_query(self) -> str:
+        """
+        Return a sql query to extract the table with.
+
+        The query addresses the following conditions:
+        * blob data is not copied and is replaced with EMPTY_BLOB() as <column>
+        * sdo geometry is converted to wkt
+        * if columns have been defined as sensitive then they are not extracted
+            and are replaced with nulls if nulls and placeholder if not.
+            placeholder values are dependent on data type.  For example
+            varchar will get '1' nums 1 etc..
+
+        :return: a query that can be used to extract the data in the table.
+        :rtype: str
+        """
+        mask_obj = db_lib.DataMasking()
+        mask_columns = mask_obj.get_masked_columns(table_name=self.table_name)
+
+        column_list = self.oradb.get_column_list(
+            self.table_name, with_type=True
+        )
+        blob_columns = self.oradb.get_blob_columns(self.table_name)
+        sdo_geometry_columns = self.oradb.get_sdo_geometry_columns(
+            self.table_name
+        )
+
+        select_column_list = []
+
+        # Define a mapping
+        for column_name, column_type in column_list:
+            if column_type in [
+                constants.ORACLE_TYPES.BLOB,
+                constants.ORACLE_TYPES.CLOB,
+            ]:
+                select_column_list.append(
+                    f"EMPTY_BLOB() AS {column_name}",
+                )
+            elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
+                select_column_list.append(
+                    f"SDO_UTIL.TO_WKTGEOMETRY({column_name}) AS {column_name}",
+                )
+            elif column_name in mask_columns:
+                mask_dummy_val = mask_obj.get_mask_dummy_val(column_type)
+                column_value = f"nvl2({column_name}, {mask_dummy_val}, NULL) as {column_name.upper()}"
+                select_column_list.append(column_value)
+            else:
+                select_column_list.append(column_name)
+        query = (
+            f"SELECT {', '.join(select_column_list)} from "  # noqa: S608
+            f"{self.db_schema.upper()}.{self.table_name.upper()}"
+        )
+        LOGGER.debug("query: %s", query)
+        return query
+
+
+class DuckDbUtil:
+    def __init__(self, duckdb_path: pathlib.Path, table_name: str):
+        self.duckdb_path = duckdb_path
+        self.table_name = table_name
+        self.ddb_con = duckdb.connect(database=self.duckdb_path)
+        self.ddb_con.install_extension("spatial")
+        self.ddb_con.load_extension("spatial")
+        self.ddb_con.execute(f"SET memory_limit='{constants.DUCK_DB_MEM_LIM}'")
+
+    def close(self):
+        self.ddb_con.close()
+
+    def get_spatial_columns(self):
+        query = f"""
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_name = '{self.table_name}'
+            AND (data_type LIKE '%geometry%' OR data_type LIKE '%geography%');
+        """
+        self.ddb_con.execute(query)
+
+        # Fetch the results
+        results = self.ddb_con.fetchall()
+
+        # Print the results
+        columns = []
+        for row in results:
+            columns.append(row[0])
+        return columns
+
+    def get_columns(self):
+        query = f"""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = '{self.table_name}';
+        """
+        self.ddb_con.execute(query)
+        results = self.ddb_con.fetchall()
+        cols = [col[0] for col in results]
+        LOGGER.debug("ddb table: %s columns: %s", self.table_name, cols)
+        return cols
+
+    def export_to_parquet(self, export_file: pathlib.Path):
+        # need to test this.
+        LOGGER.debug("write to parquet...")
+
+        spatial_cols = self.get_spatial_columns()
+        spatial_cols_lower = [col.lower() for col in spatial_cols]
+        fix_cols = []
+        columns = self.get_columns()
+        for col in columns:
+            if col.lower() in spatial_cols_lower:
+                fix_cols.append(f"ST_GeomFromWKB({col}) AS {col}")
+            else:
+                fix_cols.append(col)
+        ddb_2_parquet_query_str = f"""
+            COPY (select {", ".join(fix_cols)} FROM {self.table_name})
+            TO '{export_file}' (FORMAT PARQUET);
+        """
+        LOGGER.debug(ddb_2_parquet_query_str)
+        LOGGER.info("writing to parquet file: %s", export_file)
+        self.ddb_con.sql(ddb_2_parquet_query_str)
+        LOGGER.debug("file has been extracted!")
+
+    def create_and_write_chunk(self, chunk):
+        self.ddb_con.sql(
+            f"CREATE TABLE {self.table_name} AS SELECT * FROM chunk"
+        )
+
+    def insert_chunk(
+        self,
+        chunk,
+    ):
+        self.ddb_con.sql(f"INSERT INTO {self.table_name} SELECT * FROM chunk")

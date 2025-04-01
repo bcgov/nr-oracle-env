@@ -51,6 +51,7 @@ dependencies = [
     "geopandas>=1.0.1",
     "fiona>=1.10.1",
     "duckdb>=1.2.1",
+    "faker>=37.1.0",
 ]
 name = "data-population"
 version = "0.1.0"
@@ -64,4 +65,5 @@ dev = [
     "ruff<1.0.0,>=0.8.0",
     "mypy-boto3<2.0.0,>=1.35.38",
     "pytest>=8.3.3,<9.0.0",
+    "python-dotenv>=1.1.0",
 ]

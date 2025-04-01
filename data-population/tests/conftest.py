@@ -22,8 +22,9 @@ LOGGER = logging.getLogger(__name__)
 
 pytest_plugins = [
     "fixtures.demo_fixtures",
-    "fixtures.dockerdb_fixtures",
+    "fixtures.db_connection_params",
     "fixtures.db_fixtures",
+    "fixtures.db_ora_extractor",
 ]
 
 testSession = None

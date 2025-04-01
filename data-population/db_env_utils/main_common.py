@@ -360,7 +360,10 @@ class Utility:
             LOGGER.info("Exporting table %s", table)
             # skip the forest cover geometry table, for now
             # tables_2_skip = ["TIMBER_MARK", "HARVESTING_AUTHORITY"]
-            # tables_2_skip = ["FOREST_COVER_GEOMETRY", "STOCKING_STANDARD_GEOMETRY"]
+            # tables_2_skip = [
+            #     "FOREST_COVER_GEOMETRY",
+            #     "STOCKING_STANDARD_GEOMETRY",
+            # ]
             tables_2_skip = []
             # leeaving
             if table.upper() in tables_2_skip:
