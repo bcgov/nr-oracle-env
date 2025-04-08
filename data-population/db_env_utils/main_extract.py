@@ -74,7 +74,13 @@ LOGGER = logging.getLogger(__name__)
 @click.option(
     "--refresh", is_flag=True, help="Refresh the environment configuration."
 )
-def main(source, environment, refresh):
+@click.option(
+    "--table",
+    default=None,
+    # help="extract one specific table",
+    required=False,
+)
+def main(source, environment, refresh, table):
     """
     Extract data a SPAR database.
 
@@ -114,7 +120,7 @@ def main(source, environment, refresh):
         click.echo("Refresh flag is not enabled.")
 
     LOGGER.debug("refresh: %s %s", refresh, type(refresh))
-    common_util.run_extract(refresh=refresh)
+    common_util.run_extract(refresh=refresh, table=table)
 
 
 if __name__ == "__main__":

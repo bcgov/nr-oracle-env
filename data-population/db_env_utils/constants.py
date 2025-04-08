@@ -7,14 +7,11 @@ import datetime
 import decimal
 import logging
 import os
-import pathlib
 from enum import Enum
 
 import data_types
-import numpy as np
 import oracledb
 import pyarrow
-import sqlalchemy
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +33,7 @@ PARQUET_SUFFIX = "parquet"
 SQL_DUMP_SUFFIX = "sql.gz"
 DUCKDB_TMP_FILE = "donald.duckdb"
 DUCK_DB_MEM_LIM = "5GB"
+DUCK_DB_SUFFIX = "ddb"
 
 # name of the directory in object store where the data backup files reside
 OBJECT_STORE_DATA_DIRECTORY = os.getenv("OBJECT_STORE_DATA_DIRECTORY", "pyetl")
@@ -77,13 +75,14 @@ DB_TYPE_PYARROW_MAP = {
     oracledb.DB_TYPE_NVARCHAR: pyarrow.string(),
     oracledb.DB_TYPE_NCHAR: pyarrow.string(),
     oracledb.DB_TYPE_CLOB: pyarrow.string(),
-    oracledb.DB_TYPE_NUMBER: pyarrow.float64(),  # Can also be pyarrow.int64() if no decimals
+    # Can also be pyarrow.int64() if no decimals
+    oracledb.DB_TYPE_NUMBER: pyarrow.float64(),
     oracledb.DB_TYPE_BINARY_FLOAT: pyarrow.float32(),
     oracledb.DB_TYPE_BINARY_DOUBLE: pyarrow.float64(),
     oracledb.DB_TYPE_DATE: pyarrow.timestamp("s"),
     oracledb.DB_TYPE_TIMESTAMP: pyarrow.timestamp("ns"),
     oracledb.DB_TYPE_TIMESTAMP_LTZ: pyarrow.timestamp(
-        "ns"
+        "ns",
     ),  # Oracle's Local Time Zone
     oracledb.DB_TYPE_TIMESTAMP_TZ: pyarrow.timestamp("ns", tz="UTC"),
     oracledb.DB_TYPE_BLOB: pyarrow.binary(),
@@ -91,9 +90,10 @@ DB_TYPE_PYARROW_MAP = {
     oracledb.DB_TYPE_LONG_RAW: pyarrow.binary(),
     oracledb.DB_TYPE_BOOLEAN: pyarrow.bool_(),
     oracledb.DB_TYPE_INTERVAL_DS: pyarrow.duration(
-        "s"
+        "s",
     ),  # Interval Day to Second
-    oracledb.DB_TYPE_INTERVAL_YM: pyarrow.int32(),  # Interval Year to Month (int is closest)
+    # Interval Year to Month (int is closest)
+    oracledb.DB_TYPE_INTERVAL_YM: pyarrow.int32(),
 }
 
 
@@ -200,7 +200,10 @@ DATA_TO_MASK = [
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="BIRTHDATE",
-        faker_method="fake.date_time_between_dates(datetime_start='-99y', datetime_end='-20y').strftime('%Y-%m-%d 00:00:00.00')",
+        faker_method=(
+            "fake.date_time_between_dates(datetime_start='-99y', datetime_end"
+            "='-20y').strftime('%Y-%m-%d 00:00:00.00')",
+        ),
         percent_null=80,
     ),
     data_types.DataToMask(
@@ -228,7 +231,9 @@ DATA_TO_MASK = [
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="REGISTRY_COMPANY_TYPE_CODE",
-        faker_method="''.join(random.choices(string.ascii_letters, k=4)).upper()",
+        faker_method=(
+            "''.join(random.choices(string.ascii_letters, k=4)).upper()"
+        ),
         percent_null=90,
     ),
     data_types.DataToMask(
@@ -242,7 +247,9 @@ DATA_TO_MASK = [
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CLIENT_ACRONYM",
-        faker_method="''.join(random.choices(string.ascii_letters, k=8)).upper()",
+        faker_method=(
+            "''.join(random.choices(string.ascii_letters, k=8)).upper()"
+        ),
         percent_null=80,
     ),
     data_types.DataToMask(
@@ -301,13 +308,46 @@ class ORACLE_TYPES(Enum):
 
 OracleMaskValuesMap = {
     ORACLE_TYPES.VARCHAR2: "'1'",
-    ORACLE_TYPES.DATE: datetime.datetime.strptime(
-        "0001-01-01 01:01:01", "%Y-%m-%d %H:%M:%S"
-    ),
+    ORACLE_TYPES.DATE: f"'{
+        datetime.datetime.strptime('0001-01-01 01:01:01', '%Y-%m-%d %H:%M:%S')
+    }'",
     ORACLE_TYPES.NUMBER: 1,
     ORACLE_TYPES.CHAR: "'1'",
-    ORACLE_TYPES.TIMESTAMP: datetime.datetime.strptime(
-        "0001-01-01 01:01:01", "%Y-%m-%d %H:%M:%S"
-    ),
+    ORACLE_TYPES.TIMESTAMP: f"'{
+        datetime.datetime.strptime('0001-01-01 01:01:01', '%Y-%m-%d %H:%M:%S')
+    }'",
     ORACLE_TYPES.LONG: "'1'",
+}
+
+
+class DUCK_DB_TYPES(Enum):
+    """
+    Define the duckdb database types that are supported.
+
+    :param Enum: enumeration with duckdb data types that are supported by the
+        scripts in this project.
+    :type Enum: Enum
+    """
+
+    DECIMAL = 1
+    DOUBLE = 2
+    BIGINT = 3
+    FLOAT = 4
+    VARCHAR = 5
+    TEXT = 6
+    TIMESTAMP = 7
+    BLOB = 8
+    GEOMETRY = 9
+
+
+ORACLE_TYPES_TO_DDB_TYPES = {
+    ORACLE_TYPES.VARCHAR2: DUCK_DB_TYPES.VARCHAR,
+    ORACLE_TYPES.DATE: DUCK_DB_TYPES.TIMESTAMP,
+    ORACLE_TYPES.NUMBER: DUCK_DB_TYPES.DECIMAL,
+    ORACLE_TYPES.CHAR: DUCK_DB_TYPES.VARCHAR,
+    ORACLE_TYPES.SDO_GEOMETRY: DUCK_DB_TYPES.GEOMETRY,
+    ORACLE_TYPES.RAW: DUCK_DB_TYPES.BLOB,
+    ORACLE_TYPES.BLOB: DUCK_DB_TYPES.BLOB,
+    ORACLE_TYPES.CLOB: DUCK_DB_TYPES.TEXT,
+    ORACLE_TYPES.TIMESTAMP: DUCK_DB_TYPES.TIMESTAMP,
 }

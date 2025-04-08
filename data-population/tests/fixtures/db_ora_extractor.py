@@ -71,3 +71,24 @@ def extractor_inst_spatial_TEST(
         ora,
     )
     yield extract_list
+
+
+@pytest.fixture(scope="module")
+def extractor_inst_application_PROD(
+    ora_PROD_db_connection_params_from_env, ora_PROD_env
+):
+    conn_params = ora_PROD_db_connection_params_from_env
+    cur_app_paths = db_env_utils.app_paths.AppPaths(ora_PROD_env)
+
+    table_name = "APPLICATION"
+    db_schema = conn_params.schema_to_sync
+
+    ora = db_env_utils.oradb_lib.OracleDatabase(
+        connection_params=conn_params, app_paths=cur_app_paths
+    )
+    extract_list = create_extractor_and_export(
+        table_name,
+        conn_params.schema_to_sync,
+        ora,
+    )
+    yield extract_list

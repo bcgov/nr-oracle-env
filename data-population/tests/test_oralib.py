@@ -503,8 +503,10 @@ def test_enable_integrity_constraint(db_connection_fixture):
 
 def test_load_sdo_data(db_connection_fixture):
     ora = db_connection_fixture
-
-    table = "FOREST_COVER_GEOMETRY"
+    # try code table
+    # OPENING_ATTACHMENT FOREST_COVER_GEOMETRY SILV_COMMENT_SOURCE_CODE OPENING_COMMENT_LINK
+    table = "OPENING_COMMENT_LINK"
+    ora.truncate_table(table=table)
 
     parquet_file = (
         pathlib.Path(__file__).parent
@@ -512,7 +514,7 @@ def test_load_sdo_data(db_connection_fixture):
         / "data"
         / "PROD"
         / "ORA"
-        / f"{table}.parquet"
+        / f"{table}.ddb"
     )
     # parquet_file = (
     #     pathlib.Path(__file__).parent / "test_data" / f"{table}.parquet"
@@ -520,4 +522,4 @@ def test_load_sdo_data(db_connection_fixture):
     LOGGER.debug("source file: %s", parquet_file)
     ora.get_connection()
 
-    ora.load_data_geoparquet(table=table, import_file=parquet_file)
+    ora.load_data(table=table, import_file=parquet_file)

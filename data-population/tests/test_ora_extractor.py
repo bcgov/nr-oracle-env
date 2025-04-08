@@ -82,3 +82,17 @@ def test_masking(extractor_inst, monkeypatch):
     if extract_file.exists():
         extract_file.unlink()
     extract_obj.extract(extract_file)
+
+
+def test_extractor_application(extractor_inst_application_PROD):
+    extract_obj = extractor_inst_application_PROD[0]
+    extract_file = extractor_inst_application_PROD[1]
+    if extract_file.exists():
+        extract_file.unlink()
+    extract_obj.extract(extract_file)
+    conn = duckdb.connect(extract_file)
+    table_name = extract_file.stem.upper()
+    LOGGER.debug("table name: %s", table_name)
+    row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+    LOGGER.debug("row count: %s", row_count)
+    assert row_count > 0, "Row count should be greater than 0"

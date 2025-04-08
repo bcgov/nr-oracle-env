@@ -81,6 +81,24 @@ class Utility:
             app_paths=self.app_paths,
         )
 
+    def pull_data_classifications(self) -> None:
+        """
+        Pull the data classification spreadsheet from object store.
+
+        This metadata is currently read from a ss, and is used to identify
+        the security classification of the data that is being extracted from
+        the database.  This is used to determine if the data needs to be
+        masked or not.
+
+        This method ensures the ss is available locally, so that subsequent
+        processes that need it do not have to pull it from object store.
+
+        :return: None
+        """
+        ostore = self.connect_ostore()
+        LOGGER.info("pulling data classification spreadsheet from object store")
+        ostore.get_data_classification_ss()
+
     def get_tables(self) -> list[str]:
         """
         Get table list from database.
@@ -324,15 +342,20 @@ class Utility:
         ).decode("utf-8")
         return db_conn_params
 
-    def run_extract(self, *, refresh: bool) -> None:
+    def run_extract(self, *, refresh: bool, table: str | None) -> None:
         """
         Run the extract process.
         """
-
+        # data classification spreadsheet is used to determine what data can be
+        # pulled at a column level.
+        self.pull_data_classifications()
         self.make_dirs()
 
         # gets the table list from database
-        tables_to_export = self.get_tables_for_extract()
+        if table is not None:
+            tables_to_export = [table]
+        else:
+            tables_to_export = self.get_tables_for_extract()
         LOGGER.debug("tables to export: %s", tables_to_export)
 
         ostore = self.connect_ostore()
@@ -462,6 +485,8 @@ class Utility:
         ostore = self.connect_ostore()
         dcr = docker_parser.ReadDockerCompose()
 
+        # getting connection params from the env and then creating db connection
+        # to local docker container oracle db where the data is being loaded.
         if self.db_type == constants.DBType.ORA:
             local_db_params = self.env_obj.get_local_ora_db_env_constants()
 
@@ -486,7 +511,8 @@ class Utility:
         # and only handled here.
         if refreshdb:
             local_docker_db.purge_data(
-                table_list=tables_to_import, cascade=True
+                table_list=tables_to_import,
+                cascade=True,
             )
         datadir = self.app_paths.get_data_dir()
         local_docker_db.load_data_retry(

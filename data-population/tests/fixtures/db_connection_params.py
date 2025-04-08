@@ -57,9 +57,30 @@ def ora_TEST_env():
 
 
 @pytest.fixture(scope="module")
+def ora_PROD_env():
+    """
+    Connection parameters for docker database.
+    """
+    dotenvFile = pathlib.Path(__file__).parent / ".." / ".." / ".env"
+    dotenv.load_dotenv(dotenv_path=dotenvFile)
+    LOGGER.debug("ora host for test: %s", os.getenv("ORACLE_HOST_PROD", "junk"))
+    env = env_config.Env("PROD")
+    yield env
+
+
+@pytest.fixture(scope="module")
 def ora_TEST_db_connection_params_from_env(ora_TEST_env):
     """
     Connection parameters for docker database.
     """
     conn_params = ora_TEST_env.get_ora_db_env_constants()
+    yield conn_params
+
+
+@pytest.fixture(scope="module")
+def ora_PROD_db_connection_params_from_env(ora_PROD_env):
+    """
+    Connection parameters for docker database.
+    """
+    conn_params = ora_PROD_env.get_ora_db_env_constants()
     yield conn_params

@@ -136,6 +136,22 @@ class AppPaths:
         LOGGER.debug("parquet file name: %s", return_path)
         return return_path
 
+    def get_duckdb_file_path(
+        self,
+        table: str,
+        env_str: str,
+        db_type: constants.DBType,
+    ) -> pathlib.Path:
+        duckdb_file_name = f"{table}.{constants.DUCK_DB_SUFFIX}"
+        return_path = pathlib.Path(
+            constants.DATA_DIR,
+            env_str,
+            db_type.name,
+            duckdb_file_name,
+        )
+        LOGGER.debug("duckdb file name: %s", return_path)
+        return return_path
+
     def get_sql_dump_file_path(
         self,
         table: str,
@@ -187,7 +203,7 @@ class AppPaths:
         :rtype: pathlib.Path
         """
         if db_type == constants.DBType.ORA:
-            suffix = constants.PARQUET_SUFFIX
+            suffix = constants.DUCK_DB_SUFFIX
         elif db_type == constants.DBType.OC_POSTGRES:
             suffix = constants.SQL_DUMP_SUFFIX
         parquet_file_name = f"{table}.{suffix}"
@@ -214,7 +230,7 @@ class AppPaths:
         """
         return_table = None
         if db_type == constants.DBType.ORA:
-            return_table = self.get_parquet_file_path(table, env_str, db_type)
+            return_table = self.get_duckdb_file_path(table, env_str, db_type)
         elif db_type == constants.DBType.OC_POSTGRES:
             return_table = self.get_sql_dump_file_path(table, env_str, db_type)
         return return_table
@@ -263,3 +279,26 @@ class AppPaths:
         )
         LOGGER.debug("object store data path: %s", full_path)
         return full_path
+
+    def get_data_classification_local_path(self) -> pathlib.Path:
+        """
+        Get the path to the data classification file.
+
+        :return: path to the data classification file
+        :rtype: pathlib.Path
+        """
+        local_path = self.get_temp_dir() / "data_classification.xlsx"
+        LOGGER.debug("data classification local path: %s", local_path)
+        return local_path
+
+    def get_data_classification_ostore_path(self) -> pathlib.Path:
+        """
+        Get the path to the data classification file in object storage.
+
+        :return: path to the data classification file in object storage
+        :rtype: pathlib.Path
+        """
+
+        ostore_path = "data_classification/CLIENT ECAS GAS2 ILCR ISP.xlsx"
+        LOGGER.debug("data classification ostore path: %s", ostore_path)
+        return ostore_path

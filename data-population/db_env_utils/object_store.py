@@ -317,3 +317,25 @@ class OStore:
                         raise e
                     retry += 1
                     time.sleep(1)
+
+    def get_data_classification_ss(self) -> pathlib.Path:
+        """
+        Get the path to the data classification file.
+
+        :return: path to the data classification file
+        :rtype: pathlib.Path
+        """
+        local_path = self.app_paths.get_data_classification_local_path()
+        ostore_path = self.app_paths.get_data_classification_ostore_path()
+
+        if not local_path.exists():
+            # pull the files from object store.
+            # with Path("f1.py").open("wb") as fp:
+            with local_path.open("wb") as f:
+                # with open(local_data_file, "wb") as f:
+                self.s3_client.download_fileobj(
+                    self.conn_params.bucket,
+                    str(ostore_path),
+                    f,
+                )
+        return self.app_paths.get_data_classification_local_path()
