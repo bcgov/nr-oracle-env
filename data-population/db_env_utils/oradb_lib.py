@@ -998,12 +998,28 @@ class OracleDatabase(db_lib.DB):
         blob_field = cursor.fetchone()
         return blob_field is not None
 
-    def get_column_list(self, table: str, with_type: bool = False) -> list[str]:
+    def get_column_list(
+        self,
+        table: str,
+        with_type: bool = False,
+        with_length_precision_scale: bool = False,
+    ) -> list[str | tuple[str | int]]:
         """
         Get the list of columns for the table.
 
         :param table: the table to get the columns for
         :type table: str
+        :param with_type: indicates if the returned object should include the
+            data type. When true the return object will be a list of lists where
+            the inner list is [column_name, data_type]
+        :type with_type: bool
+        :param with_length_precision_scale: indicates if the returned object
+            should include the length, precision and scale of the column.  When
+            this is true regardless of what was specified for with_type the
+            returned object include the type.  example of a single row that
+            gets returned when this is set to true:
+            [column_name, data_type, length, precision, scale]
+        :type with_length_precision_scale: bool
         :return: a list of the columns for the table
         :rtype: list[str]
         """
@@ -1011,7 +1027,7 @@ class OracleDatabase(db_lib.DB):
         cursor = self.connection.cursor()
         query = """
         SELECT
-            column_name, data_type
+            column_name, data_type, data_length, data_precision, data_scale
         FROM
             all_tab_cols
         WHERE
@@ -1031,13 +1047,16 @@ class OracleDatabase(db_lib.DB):
         )
         results = cursor.fetchall()
         columns = [row[0].upper() for row in results]
-        if with_type:
+        if with_length_precision_scale:
+            columns = [
+                [row[0].upper(), row[1], row[2], row[3], row[4]]
+                for row in results
+            ]
+        elif with_type:
             columns = [
                 [row[0].upper(), constants.ORACLE_TYPES[row[1]]]
                 for row in results
             ]
-
-        # LOGGER.debug("columns: %s", columns)
         return columns
 
     def generate_sdo_query(self, table: str) -> str:
@@ -2257,17 +2276,20 @@ class DataFrameExtended(pd.DataFrame):
         # sdo_cols = [col.upper() for col in sdo_cols]
         column_list = oradb.get_column_list(
             table_name,
-            with_type=True,
+            with_length_precision_scale=True,
         )
-        cols = [col_name.upper() for col_name, col_type in column_list]
+        cols = [column_data_list[0].upper() for column_data_list in column_list]
         insert_placeholders = self.get_value_placeholders(
-            column_list=column_list
+            column_list=column_list,
+            table_name=table_name,
+            oradb=oradb,
         )
+        LOGGER.debug("insert_placeholders: %s", insert_placeholders)
         cmd = (
             f"INSERT INTO {table_name} ({', '.join(cols)}) VALUES "  # noqa: S608
             f"({', '.join(insert_placeholders)})"
         )
-        # LOGGER.debug("insert statement: %s", cmd)
+        LOGGER.debug("insert statement: %s", cmd)
 
         table_data = list(self.itertuples(index=index))
         # LOGGER.debug("type(table_data) %s", type(table_data))
@@ -2327,7 +2349,8 @@ class DataFrameExtended(pd.DataFrame):
         Get cursor input size / type list
         """
         input_sizes = []
-        for column_name, column_type in column_list:
+        for column_data in column_list:
+            column_name, column_type = column_data[0:2]
             if column_type == constants.ORACLE_TYPES.SDO_GEOMETRY:
                 LOGGER.debug("found sdo col %s", column_name)
                 input_sizes.append(oracledb.CLOB)
@@ -2337,7 +2360,9 @@ class DataFrameExtended(pd.DataFrame):
 
     def get_value_placeholders(
         self,
+        table_name: str,
         column_list: list[list[str, str]],
+        oradb: OracleDatabase,
     ) -> list[str]:
         """
         Get the value placeholders for the insert statement.
@@ -2353,8 +2378,14 @@ class DataFrameExtended(pd.DataFrame):
         # )
         col_cnt = 1
         insert_placeholders = []
-        for column_name, column_type in column_list:
+        for column_data_list in column_list:
+            column_name = column_data_list[0]
+            column_type = column_data_list[1]
             col_placeholder = f":{col_cnt}"
+            mask_obj = oradb.data_classification.get_mask_info(
+                table_name=table_name,
+                column_name=column_name,
+            )
             if column_type in [
                 constants.ORACLE_TYPES.BLOB,
                 constants.ORACLE_TYPES.CLOB,
@@ -2366,11 +2397,62 @@ class DataFrameExtended(pd.DataFrame):
                 insert_placeholders.append(
                     f"SDO_UTIL.FROM_WKTGEOMETRY({col_placeholder}, 3005)",
                 )
+            elif mask_obj:
+                faker_method = mask_obj.faker_method
+                fake_data = self.get_default_fake_data(
+                    column_data_list,
+                    faker_method,
+                )
+                # may need a case, only want to insert if not null
+                insert_placeholders.append(
+                    f"NVL2({col_placeholder}, {fake_data}, NULL)",
+                )
             # TODO: handle the mask data here once I get this working
             else:
                 insert_placeholders.append(col_placeholder)
             col_cnt += 1
         return insert_placeholders
+
+    def get_default_fake_data(
+        self, column_data: list[str | int], faker_method=None
+    ) -> str | int:
+        """
+        Returns fake data based on the data type.
+
+        column_data:
+            0 - column name
+            1 = column type
+            2 = column length
+            3 = column precision
+            4 = column scale
+        """
+        column_type = constants.ORACLE_TYPES[column_data[1]]
+        fake_data = None
+        if not faker_method:
+            faker_method = constants.ORACLE_TYPES_DEFAULT_FAKER[column_type]
+        if column_type in [
+            constants.ORACLE_TYPES.VARCHAR2,
+        ]:
+            fake_data = faker_method()[0 : column_data[2]]
+            fake_data = f"'{fake_data}'"
+        elif column_type in [
+            constants.ORACLE_TYPES.CHAR,
+            constants.ORACLE_TYPES.LONG,
+        ]:
+            fake_data = faker_method()
+            fake_data = f"'{fake_data}'"
+        elif column_type in [
+            constants.ORACLE_TYPES.NUMBER,
+        ]:
+            fake_data = faker_method()
+        elif column_type in [constants.ORACLE_TYPES.DATE]:
+            fake_data = faker_method()
+            fake_data = f"'{fake_data}'"
+        else:
+            msg = "no faker defined for the data type: %s"
+            LOGGER.error(msg, column_data)
+            raise ValueError(msg)
+        return fake_data
 
     def to_list(self) -> list[list]:
         """
@@ -3070,7 +3152,9 @@ class DataClassification:
         :type schema: str
         """
         self.valid_sheets = ["ECAS", "GAS2", "CLIENT", "ISP", "ILCR", "GAS"]
-        self.dc_struct = None
+        self.dc_struct: None | dict[str, dict[str, data_types.DataToMask]] = (
+            None
+        )
         self.schema = schema
         self.ss_path = data_class_ss_path
         self.load()
@@ -3120,7 +3204,7 @@ class DataClassification:
             )
         return constants.OracleMaskValuesMap[data_type]
 
-    def load(self):
+    def load(self) -> None:
         """
         Merge classifications in constants with classes defined in the ss.
         """

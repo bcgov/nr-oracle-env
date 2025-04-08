@@ -7,13 +7,18 @@ import datetime
 import decimal
 import logging
 import os
+import random
+import string
 from enum import Enum
 
 import data_types
+import faker
 import oracledb
 import pyarrow
 
 LOGGER = logging.getLogger(__name__)
+fake = faker.Faker("en_CA")
+
 
 # the name of the directory where data downloads will be cached before they
 # get uploaded to object store, and where they are cached when pulled from
@@ -102,182 +107,183 @@ DATA_TO_MASK = [
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="CLIENT_LOCN_NAME",
-        faker_method="fake.words(nb=3)",
+        faker_method=lambda: fake.words(nb=3),
         percent_null=90,
     ),
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="ADDRESS_1",
-        faker_method="fake.address().split('\n')[0]",
+        faker_method=lambda: fake.address().split("\n")[0],
         percent_null=0,
     ),
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="ADDRESS_2",
-        faker_method="fake.address().split('\n')[1].split(',')[0]",
+        faker_method=lambda: fake.address().split("\n")[1].split(",")[0],
         percent_null=80,
     ),
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="ADDRESS_3",
-        faker_method="fake.address().split('\n')[1].split(',')[1]",
+        faker_method=lambda: fake.address().split("\n")[1].split(",")[1],
         percent_null=90,
     ),
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="CITY",
-        faker_method="fake.city()",
+        faker_method=lambda: fake.city(),
         percent_null=0,
     ),
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="POSTAL_CODE",
-        faker_method="fake.postalcode()",
+        faker_method=lambda: fake.postalcode(),
         percent_null=0,
     ),
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="HOME_PHONE",
-        faker_method="''.join(filter(str.isdigit, fake.phone_number()))",
+        faker_method=lambda: "".join(filter(str.isdigit, fake.phone_number())),
         percent_null=90,
     ),
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="CELL_PHONE",
-        faker_method="''.join(filter(str.isdigit, fake.phone_number()))",
+        faker_method=lambda: "".join(filter(str.isdigit, fake.phone_number())),
         percent_null=95,
     ),
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="FAX_NUMBER",
-        faker_method="''.join(filter(str.isdigit, fake.phone_number()))",
+        faker_method=lambda: "".join(filter(str.isdigit, fake.phone_number())),
         percent_null=95,
     ),
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="EMAIL_ADDRESS",
-        faker_method="fake.ascii_email()",
+        faker_method=lambda: fake.ascii_email(),
         percent_null=95,
     ),
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="CLI_LOCN_COMMENT",
-        faker_method="None",
+        faker_method=lambda: fake.sentence,
         percent_null=40,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="LEGAL_FIRST_NAME",
-        faker_method="fake.first_name()",
+        faker_method=lambda: fake.first_name(),
         percent_null=40,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="LEGAL_MIDDLE_NAME",
-        faker_method="fake.first_name()",
+        faker_method=lambda: fake.first_name(),
         percent_null=60,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="LEGAL_LAST_NAME",
-        faker_method="fake.last_name()",
+        faker_method=lambda: fake.last_name(),
         percent_null=0,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="BIRTHDATE",
-        faker_method=(
-            "fake.date_time_between_dates(datetime_start='-99y', datetime_end"
-            "='-20y').strftime('%Y-%m-%d 00:00:00.00')",
-        ),
+        faker_method=lambda: fake.date_time_between_dates(
+            datetime_start="-99y", datetime_end="-20y"
+        ).strftime("%Y-%m-%d 00:00:00.00"),
         percent_null=80,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CLIENT_COMMENT",
-        faker_method="None",
+        faker_method=lambda: fake.sentence(),
         percent_null=80,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CLIENT_ID_TYPE_CODE",
-        faker_method="fake.word(ext_word_list=['SIN', 'BCDL', 'ABDL', 'PSPT'])",
+        faker_method=lambda: fake.word(
+            ext_word_list=["SIN", "BCDL", "ABDL", "PSPT"]
+        ),
         percent_null=85,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CLIENT_IDENTIFICATION",
-        faker_method="fake.ssn()",
+        faker_method=lambda: fake.ssn(),
         percent_null=95,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="REGISTRY_COMPANY_TYPE_CODE",
-        faker_method=(
-            "''.join(random.choices(string.ascii_letters, k=4)).upper()"
-        ),
+        faker_method=lambda: "".join(
+            random.choices(string.ascii_letters, k=4)
+        ).upper(),
         percent_null=90,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CORP_REGN_NMBR",
-        faker_method="str(random.randrange(1000, 10000))",
+        faker_method=lambda: str(random.randrange(1000, 10000)),
         percent_null=60,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CLIENT_ACRONYM",
-        faker_method=(
-            "''.join(random.choices(string.ascii_letters, k=8)).upper()"
-        ),
+        faker_method=lambda: "".join(
+            random.choices(string.ascii_letters, k=8)
+        ).upper(),
         percent_null=80,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="WCB_FIRM_NUMBER",
-        faker_method="str(random.randrange(1000, 100000))",
+        faker_method=lambda: str(random.randrange(1000, 100000)),
         percent_null=90,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="OCG_SUPPLIER_NMBR",
-        faker_method="str(random.randrange(1000, 100000000))",
+        faker_method=lambda: str(random.randrange(1000, 100000000)),
         percent_null=95,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CLIENT_COMMENT",
-        faker_method="fake.sentence()",
+        faker_method=lambda: fake.sentence(),
         percent_null=95,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CLIENT_COMMENT",
-        faker_method="fake.sentence()",
+        faker_method=lambda: fake.sentence(),
         percent_null=95,
     ),
 ]
@@ -351,3 +357,18 @@ ORACLE_TYPES_TO_DDB_TYPES = {
     ORACLE_TYPES.CLOB: DUCK_DB_TYPES.TEXT,
     ORACLE_TYPES.TIMESTAMP: DUCK_DB_TYPES.TIMESTAMP,
 }
+
+
+ORACLE_TYPES_DEFAULT_FAKER = {
+    ORACLE_TYPES.VARCHAR2: lambda: fake.word(),
+    ORACLE_TYPES.DATE: lambda: fake.date_time_this_century(),
+    ORACLE_TYPES.NUMBER: lambda: random.randint(0, 100000),
+    ORACLE_TYPES.CHAR: lambda: fake.word(),
+    ORACLE_TYPES.TIMESTAMP: lambda: fake.date_time_this_century(),
+    ORACLE_TYPES.LONG: lambda: fake.word(),
+}
+
+# TODO: circle back and make the functions a callable
+# example: stored_function = lambda: ''.join(random.choices(string.ascii_letters, k=4)).upper()
+# print(ORACLE_TYPES_DEFAULT_FAKER[ORACLE_TYPES.LONG]())
+# print(ORACLE_TYPES_DEFAULT_FAKER[ORACLE_TYPES.LONG]())

@@ -505,7 +505,7 @@ def test_load_sdo_data(db_connection_fixture):
     ora = db_connection_fixture
     # try code table
     # OPENING_ATTACHMENT FOREST_COVER_GEOMETRY SILV_COMMENT_SOURCE_CODE OPENING_COMMENT_LINK
-    table = "OPENING_COMMENT_LINK"
+    table = "FOREST_CLIENT"
     ora.truncate_table(table=table)
 
     parquet_file = (
