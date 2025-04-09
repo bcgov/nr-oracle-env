@@ -506,7 +506,7 @@ def test_load_sdo_data(db_connection_fixture):
     # try code table
     # OPENING_ATTACHMENT FOREST_COVER_GEOMETRY SILV_COMMENT_SOURCE_CODE OPENING_COMMENT_LINK
     # CLIENT_ID_TYPE_CODE CLIENT_LOCATION
-    table = "OPENING"
+    table = "FOREST_COVER_GEOMETRY"
 
     cons = ora.get_fk_constraints()
     ora.disable_fk_constraints(cons)

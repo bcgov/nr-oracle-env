@@ -499,10 +499,11 @@ class OracleDatabase(db_lib.DB):
         :raises sqlalchemy.exc.IntegrityError: If unable to resolve instegrity
             constraints the method will raise this error
         """
-
+        # get list of fk constraints and disable
         cons_list = self.get_fk_constraints()
         self.disable_fk_constraints(cons_list)
 
+        # ditto for triggers
         trigs_list = self.get_triggers()
         LOGGER.debug("trigs_list: %s", trigs_list)
         self.disable_trigs(trigs_list)
@@ -517,16 +518,14 @@ class OracleDatabase(db_lib.DB):
             if table.upper() in tables_2_skip:
                 LOGGER.warning("skipping the import of the table %s", table)
                 continue
-            spaces = " " * retries * 2
             import_file = self.app_paths.get_duckdb_file_path(
                 table,
                 env_str,
                 self.db_type,
             )
-            LOGGER.info("Importing table %s %s", spaces, table)
+            LOGGER.info("Importing table %s %s", " " * retries * 2, table)
             try:
                 self.load_data(table, import_file, refreshdb=refreshdb)
-
             except (
                 sqlalchemy.exc.IntegrityError,
                 sqlalchemy.exc.DatabaseError,
@@ -2299,7 +2298,7 @@ class DataFrameExtended(pd.DataFrame):
         )
         LOGGER.debug("insert_placeholders: %s", insert_placeholders)
         cmd = (
-            f"INSERT INTO {table_name} ({', '.join(cols)}) VALUES "  # noqa: S608
+            f"INSERT /*+ append */ INTO {table_name} ({', '.join(cols)}) VALUES "  # noqa: S608
             f"({', '.join(insert_placeholders)})"
         )
         LOGGER.debug("insert statement: %s", cmd)
@@ -2731,7 +2730,7 @@ class Importer:
             # # SDO_UTIL.FROM_WKBGEOMETRY(:3)
             elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
                 select_column_list.append(
-                    f"SDO_UTIL.FROM_WKTGEOMETRY(:{column_name_for_placeholder}, 3005)",
+                    f"SDO_GEOM.SDO_MBR(SDO_UTIL.FROM_WKTGEOMETRY(:{column_name_for_placeholder}, 3005))",
                 )
                 # f"SDO_UTIL.FROM_WKBGEOMETRY(TO_BLOB(:{column_name}), 3005)",
 
