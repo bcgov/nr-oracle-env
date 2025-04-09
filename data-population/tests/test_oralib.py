@@ -506,11 +506,15 @@ def test_load_sdo_data(db_connection_fixture):
     # try code table
     # OPENING_ATTACHMENT FOREST_COVER_GEOMETRY SILV_COMMENT_SOURCE_CODE OPENING_COMMENT_LINK
     # CLIENT_ID_TYPE_CODE CLIENT_LOCATION
-    table = "FOREST_COVER_GEOMETRY"
+    table = "STOCKING_STANDARD_GEOMETRY"
 
     cons = ora.get_fk_constraints()
     ora.disable_fk_constraints(cons)
     ora.truncate_table(table=table)
+
+    import sys
+
+    sys.exit()
 
     parquet_file = (
         pathlib.Path(__file__).parent

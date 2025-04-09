@@ -252,89 +252,89 @@ class OracleDatabase(db_lib.DB):
         self.connection.commit()
         cursor.close()
 
-    def load_data_geoparquet(
-        self,
-        table: str,
-        import_file: pathlib.Path,
-    ) -> None:
-        """
-        Load data from a geoparquet file.
+    # def load_data_geoparquet(
+    #     self,
+    #     table: str,
+    #     import_file: pathlib.Path,
+    # ) -> None:
+    #     """
+    #     Load data from a geoparquet file.
 
-        :param table: the name of the table that already exists, that the
-            parquet data will be loaded to.
-        :type table: str
-        :param import_file: the geoparquet file that will be loaded
-        :type import_file: pathlib.Path
-        :param purge: _description_, defaults to False
-        :type purge: bool, optional
-        """
-        self.get_connection()  # implement as a decorator!
+    #     :param table: the name of the table that already exists, that the
+    #         parquet data will be loaded to.
+    #     :type table: str
+    #     :param import_file: the geoparquet file that will be loaded
+    #     :type import_file: pathlib.Path
+    #     :param purge: _description_, defaults to False
+    #     :type purge: bool, optional
+    #     """
+    #     self.get_connection()  # implement as a decorator!
 
-        cursor = self.connection.cursor()
-        cursor.arraysize = self.ora_cur_arraysize
+    #     cursor = self.connection.cursor()
+    #     cursor.arraysize = self.ora_cur_arraysize
 
-        spatial_column = self.get_geoparquet_spatial_column(import_file)
-        spatial_column_wkt = spatial_column + "_wkt"
-        spatial_column_wkb = spatial_column + "_wkb"
-        LOGGER.debug("spatial_column is: %s", spatial_column)
-        # LOGGER.debug("spatial_column wkt is: %s", spatial_column_wkt)
+    #     spatial_column = self.get_geoparquet_spatial_column(import_file)
+    #     spatial_column_wkt = spatial_column + "_wkt"
+    #     spatial_column_wkb = spatial_column + "_wkb"
+    #     LOGGER.debug("spatial_column is: %s", spatial_column)
+    #     # LOGGER.debug("spatial_column wkt is: %s", spatial_column_wkt)
 
-        gdf = gpd.read_parquet(import_file)
+    #     gdf = gpd.read_parquet(import_file)
 
-        gdf[spatial_column_wkt] = gdf[spatial_column].apply(
-            lambda x: shapely.wkt.dumps(x) if x else None,
-        )
-        gdf[spatial_column_wkb] = gdf[spatial_column].apply(
-            lambda x: shapely.wkb.dumps(x) if x else None,
-        )
+    #     gdf[spatial_column_wkt] = gdf[spatial_column].apply(
+    #         lambda x: shapely.wkt.dumps(x) if x else None,
+    #     )
+    #     gdf[spatial_column_wkb] = gdf[spatial_column].apply(
+    #         lambda x: shapely.wkb.dumps(x) if x else None,
+    #     )
 
-        # patch the nan to None in the df
-        gdf = gdf.replace({numpy.nan: None})
+    #     # patch the nan to None in the df
+    #     gdf = gdf.replace({numpy.nan: None})
 
-        LOGGER.debug(spatial_column)
-        LOGGER.debug("gdf columns: %s", gdf.columns)
+    #     LOGGER.debug(spatial_column)
+    #     LOGGER.debug("gdf columns: %s", gdf.columns)
 
-        columns = self.get_column_list(table)
-        LOGGER.debug("columns: %s", columns)
-        spatial_columns = self.get_sdo_geometry_columns(table)
-        columns_string = ", ".join(columns)
-        value_param_list = []
-        for column in columns:
-            if column in spatial_columns:
-                # value_param_list.append(f"SDO_GEOMETRY(:{column}, 3005)")
-                value_param_list.append(
-                    f"SDO_UTIL.FROM_WKBGEOMETRY(TO_BLOB(:{column}), 3005)"
-                )
-            else:
-                value_param_list.append(f":{column}")
-        column_value_str = ", ".join(value_param_list)
-        insert_stmt = f"""
-            INSERT INTO {self.schema_2_sync}.{table} ({columns_string})
-            VALUES ({column_value_str})
-        """  # noqa: S608
-        LOGGER.debug("statement: %s", insert_stmt)
-        LOGGER.debug("Loading data...")
-        rowcnt = 0
-        for index, row in gdf.iterrows():
-            data_dict = {}
-            for column in columns:
-                if column.lower() == spatial_column.lower():
-                    log_msg = (
-                        "dealing with spatial column: %s "
-                        "gdf column: %s data: %s"
-                    )
-                    blob_var = cursor.var(oracledb.BLOB)
-                    blob_var.setvalue(0, row[spatial_column_wkt])
-                    data_dict[column] = blob_var
-                else:
-                    data_dict[column] = row[column.lower()]
-            cursor.execute(insert_stmt, data_dict)
-            rowcnt += 1
-            if not rowcnt % 1000:
-                LOGGER.debug("   inserted rows: %s", 1000 * row)
+    #     columns = self.get_column_list(table)
+    #     LOGGER.debug("columns: %s", columns)
+    #     spatial_columns = self.get_sdo_geometry_columns(table)
+    #     columns_string = ", ".join(columns)
+    #     value_param_list = []
+    #     for column in columns:
+    #         if column in spatial_columns:
+    #             # value_param_list.append(f"SDO_GEOMETRY(:{column}, 3005)")
+    #             value_param_list.append(
+    #                 f"SDO_UTIL.FROM_WKBGEOMETRY(TO_BLOB(:{column}), 3005)"
+    #             )
+    #         else:
+    #             value_param_list.append(f":{column}")
+    #     column_value_str = ", ".join(value_param_list)
+    #     insert_stmt = f"""
+    #         INSERT INTO {self.schema_2_sync}.{table} ({columns_string})
+    #         VALUES ({column_value_str})
+    #     """  # noqa: S608
+    #     LOGGER.debug("statement: %s", insert_stmt)
+    #     LOGGER.debug("Loading data...")
+    #     rowcnt = 0
+    #     for index, row in gdf.iterrows():
+    #         data_dict = {}
+    #         for column in columns:
+    #             if column.lower() == spatial_column.lower():
+    #                 log_msg = (
+    #                     "dealing with spatial column: %s "
+    #                     "gdf column: %s data: %s"
+    #                 )
+    #                 blob_var = cursor.var(oracledb.BLOB)
+    #                 blob_var.setvalue(0, row[spatial_column_wkt])
+    #                 data_dict[column] = blob_var
+    #             else:
+    #                 data_dict[column] = row[column.lower()]
+    #         cursor.execute(insert_stmt, data_dict)
+    #         rowcnt += 1
+    #         if not rowcnt % 1000:
+    #             LOGGER.debug("   inserted rows: %s", 1000 * row)
 
-        cursor.close()
-        self.connection.commit()
+    #     cursor.close()
+    #     self.connection.commit()
 
     def load_data(
         self,
@@ -358,33 +358,33 @@ class OracleDatabase(db_lib.DB):
         )
         return importer.import_data()
 
-    def load_data_old_delete_once_working(
-        self,
-        table: str,
-        import_file: pathlib.Path,
-        *,
-        refreshdb: bool = False,
-    ) -> None:
-        """
-        Load the data from the file into the table.
+        # def load_data_old_delete_once_working(
+        #     self,
+        #     table: str,
+        #     import_file: pathlib.Path,
+        #     *,
+        #     refreshdb: bool = False,
+        # ) -> None:
+        #     """
+        #     Load the data from the file into the table.
 
-        Override the default db_lib method.  Identify if the source parquet
-        file is geoparquet.  If so then use custom load logic that accomodates
-        the spatial column handling.  Otherwise just pass through to the
-        parent method.
+        #     Override the default db_lib method.  Identify if the source parquet
+        #     file is geoparquet.  If so then use custom load logic that accomodates
+        #     the spatial column handling.  Otherwise just pass through to the
+        #     parent method.
 
-        :param table: the table to load the data into
-        :type table: str
-        :param import_file: the file to read the data from
-        :type import_file: str
-        :param refreshdb: if True, delete the data from the table before loading.
-        :type refreshdb: bool
-        """
-        self.get_connection()
-        if refreshdb:
-            self.truncate_table(table=table)
-        dest_tab_rows = self.get_row_count(table)
-        LOGGER.debug("table: %s has %s rows", table, dest_tab_rows)
+        #     :param table: the table to load the data into
+        #     :type table: str
+        #     :param import_file: the file to read the data from
+        #     :type import_file: str
+        #     :param refreshdb: if True, delete the data from the table before loading.
+        #     :type refreshdb: bool
+        #     """
+        #     self.get_connection()
+        #     if refreshdb:
+        #         self.truncate_table(table=table)
+        #     dest_tab_rows = self.get_row_count(table)
+        #     LOGGER.debug("table: %s has %s rows", table, dest_tab_rows)
 
         # only load data if its a zero row count.
         if not dest_tab_rows:
@@ -410,53 +410,53 @@ class OracleDatabase(db_lib.DB):
                     refreshdb=refreshdb,
                 )
 
-    def load_data_delete(
-        self,
-        table: str,
-        import_file: str,
-        *,
-        purge: bool = False,
-    ) -> None:
-        """
-        Load the data from the file into the table.
+    # def load_data_delete(
+    #     self,
+    #     table: str,
+    #     import_file: str,
+    #     *,
+    #     purge: bool = False,
+    # ) -> None:
+    #     """
+    #     Load the data from the file into the table.
 
-        :param table: the table to load the data into
-        :type table: str
-        :param import_file: the file to read the data from
-        :type import_file: str
-        :param purge: if True, delete the data from the table before loading.
-        :type purge: bool
-        """
-        # debugging to view the data before it gets loaded
-        pandas_df = pd.read_parquet(import_file)
-        self.get_connection()  # make sure there is an oracle connection
+    #     :param table: the table to load the data into
+    #     :type table: str
+    #     :param import_file: the file to read the data from
+    #     :type import_file: str
+    #     :param purge: if True, delete the data from the table before loading.
+    #     :type purge: bool
+    #     """
+    #     # debugging to view the data before it gets loaded
+    #     pandas_df = pd.read_parquet(import_file)
+    #     self.get_connection()  # make sure there is an oracle connection
 
-        LOGGER.debug("loading data for table: %s", table)
+    #     LOGGER.debug("loading data for table: %s", table)
 
-        self.get_sqlalchemy_engine()
-        if purge:
-            self.truncate_table(table=table.lower())
-        with (
-            self.sql_alchemy_engine.connect() as connection,
-            connection.begin(),
-        ):
-            pandas_df.to_sql(
-                table.lower(),
-                con=connection,
-                schema="THE",
-                if_exists="append",
-                index=False,
-            )
-            # now verify data
-        sql = "Select count(*) from {schema}.{table}"
-        cur = self.connection.cursor()
-        cur.execute(sql.format(schema=self.schema_2_sync, table=table))
-        result = cur.fetchall()
-        rows_loaded = result[0][0]
-        if not rows_loaded:
-            LOGGER.error("no rows loaded to table %s", table)
-        LOGGER.debug("rows loaded to table %s are:  %s", table, rows_loaded)
-        cur.close()
+    #     self.get_sqlalchemy_engine()
+    #     if purge:
+    #         self.truncate_table(table=table.lower())
+    #     with (
+    #         self.sql_alchemy_engine.connect() as connection,
+    #         connection.begin(),
+    #     ):
+    #         pandas_df.to_sql(
+    #             table.lower(),
+    #             con=connection,
+    #             schema="THE",
+    #             if_exists="append",
+    #             index=False,
+    #         )
+    #         # now verify data
+    #     sql = "Select count(*) from {schema}.{table}"
+    #     cur = self.connection.cursor()
+    #     cur.execute(sql.format(schema=self.schema_2_sync, table=table))
+    #     result = cur.fetchall()
+    #     rows_loaded = result[0][0]
+    #     if not rows_loaded:
+    #         LOGGER.error("no rows loaded to table %s", table)
+    #     LOGGER.debug("rows loaded to table %s are:  %s", table, rows_loaded)
+    #     cur.close()
 
     def load_data_retry(
         self,
@@ -1320,7 +1320,7 @@ class OracleDatabase(db_lib.DB):
             LOGGER.debug("remove the temporary duck db file: %s", temp_ddb_db)
         return True
 
-    def extract_data_sdogeometry(
+    def extract_data_sdogeometry_parquet(
         self,
         table: str,
         export_file: pathlib.Path,
@@ -1334,7 +1334,8 @@ class OracleDatabase(db_lib.DB):
 
         :param table: table who's data should be extracted
         :type table: str
-        :param export_file: the file that the data will be written to
+        :param export_file: the file that the data will be written to (need to
+            be a parquet file)
         :type export_file: pathlib.Path
         :param overwrite: if the file already exists what to do
         :type overwrite: bool, optional
@@ -1829,86 +1830,86 @@ class OracleDatabase(db_lib.DB):
             # all spatial columns? geo_metadata.get('columns', {}).keys()
         return spatial_column
 
-    def load_data_with_raw_blobby(
-        self,
-        table: str,
-        import_file: pathlib.Path,
-    ) -> None:
-        """
-        Load data from parquet file to oracle table with BLOB columns.
+    # def load_data_with_raw_blobby(
+    #     self,
+    #     table: str,
+    #     import_file: pathlib.Path,
+    # ) -> None:
+    #     """
+    #     Load data from parquet file to oracle table with BLOB columns.
 
-        :param table: table name
-        :type table: str
-        :param import_file: import file path
-        :type import_file: pathlib.Path
-        :param purge: Should the contents of the file be purged before writing,
-                      defaults to False
-        :type purge: bool, optional
-        """
-        # make sure there is a connection
-        self.get_connection()
-        self.get_sqlalchemy_engine()
+    #     :param table: table name
+    #     :type table: str
+    #     :param import_file: import file path
+    #     :type import_file: pathlib.Path
+    #     :param purge: Should the contents of the file be purged before writing,
+    #                   defaults to False
+    #     :type purge: bool, optional
+    #     """
+    #     # make sure there is a connection
+    #     self.get_connection()
+    #     self.get_sqlalchemy_engine()
 
-        total_rows_read = 0
+    #     total_rows_read = 0
 
-        # delete records if necessary
-        LOGGER.debug("loading data to table: %s", table)
-        with (
-            self.sql_alchemy_engine.connect() as connection,
-            connection.begin(),
-        ):
-            # set up a chunk reader
-            LOGGER.debug("reading parquet file, %s", import_file)
-            parquet_reader = pyarrow.parquet.ParquetFile(import_file)
-            iter_cnt = 1
+    #     # delete records if necessary
+    #     LOGGER.debug("loading data to table: %s", table)
+    #     with (
+    #         self.sql_alchemy_engine.connect() as connection,
+    #         connection.begin(),
+    #     ):
+    #         # set up a chunk reader
+    #         LOGGER.debug("reading parquet file, %s", import_file)
+    #         parquet_reader = pyarrow.parquet.ParquetFile(import_file)
+    #         iter_cnt = 1
 
-            # get blob columns
-            blob_columns = self.get_blob_columns(table)
-            LOGGER.debug("blob_columns: %s", blob_columns)
+    #         # get blob columns
+    #         blob_columns = self.get_blob_columns(table)
+    #         LOGGER.debug("blob_columns: %s", blob_columns)
 
-            # Reading the data from parquet, in chunks
-            for batch in parquet_reader.iter_batches(
-                batch_size=self.chunk_size,
-            ):
-                # messaging
-                end_row_cnt = iter_cnt * self.chunk_size
-                start_row_cnt = end_row_cnt - self.chunk_size
-                LOGGER.debug(
-                    "writing rows from %s to %s",
-                    start_row_cnt,
-                    end_row_cnt,
-                )
+    #         # Reading the data from parquet, in chunks
+    #         for batch in parquet_reader.iter_batches(
+    #             batch_size=self.chunk_size,
+    #         ):
+    #             # messaging
+    #             end_row_cnt = iter_cnt * self.chunk_size
+    #             start_row_cnt = end_row_cnt - self.chunk_size
+    #             LOGGER.debug(
+    #                 "writing rows from %s to %s",
+    #                 start_row_cnt,
+    #                 end_row_cnt,
+    #             )
 
-                # pyarrow record batch to pandas dataframe
-                to_ora_df = batch.to_pandas()
-                total_rows_read = total_rows_read + len(to_ora_df)
-                # override the current class implementation with my own to_sql
-                # method
-                to_ora_df.__class__ = DataFrameExtended
+    #             # pyarrow record batch to pandas dataframe
+    #             to_ora_df = batch.to_pandas()
+    #             total_rows_read = total_rows_read + len(to_ora_df)
+    #             # override the current class implementation with my own to_sql
+    #             # method
+    #             to_ora_df.__class__ = DataFrameExtended
 
-                LOGGER.debug("columns in dataframe: %s", to_ora_df.columns)
-                to_ora_df.to_sql(
-                    name=table,
-                    con=self.connection,
-                    if_exists="append",
-                    index=False,
-                    blob_cols=blob_columns,
-                )
-                iter_cnt += 1
+    #             LOGGER.debug("columns in dataframe: %s", to_ora_df.columns)
+    #             to_ora_df.to_sql(
+    #                 name=table,
+    #                 con=self.connection,
+    #                 if_exists="append",
+    #                 index=False,
+    #                 blob_cols=blob_columns,
+    #             )
+    #             iter_cnt += 1
 
-        # now verify data load
-        self.connection.commit()
-        rows_loaded = self.get_row_count(table_name=table)
+    #     # now verify data load
+    #     self.connection.commit()
+    #     rows_loaded = self.get_row_count(table_name=table)
 
-        if not rows_loaded:
-            LOGGER.error("no rows loaded to table %s", table)
-        LOGGER.info("rows loaded to table %s are:  %s", table, rows_loaded)
-        LOGGER.info("rows in parquet file: %s", total_rows_read)
-        if rows_loaded != total_rows_read:
-            LOGGER.warning(
-                "discrepancy between source and dest data for table: %s",
-                table,
-            )
+    #     if not rows_loaded:
+    #         LOGGER.error("no rows loaded to table %s", table)
+    #     LOGGER.info("rows loaded to table %s are:  %s", table, rows_loaded)
+    #     LOGGER.info("rows in parquet file: %s", total_rows_read)
+    #     if rows_loaded != total_rows_read:
+    #         LOGGER.warning(
+    #             "discrepancy between source and dest data for table: %s",
+    #             table,
+    #         )
 
 
 class FixOracleSequences:
