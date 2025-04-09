@@ -738,8 +738,6 @@ class DB(ABC):
         :rtype: int
         """
         query = "SELECT COUNT(*) FROM {schema}.{table}"
-
-        LOGGER.debug("record count query: %s", query)
         self.get_connection()
         cursor = self.connection.cursor()
         if self.db_type == constants.DBType.OC_POSTGRES:

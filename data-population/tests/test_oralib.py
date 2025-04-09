@@ -505,7 +505,11 @@ def test_load_sdo_data(db_connection_fixture):
     ora = db_connection_fixture
     # try code table
     # OPENING_ATTACHMENT FOREST_COVER_GEOMETRY SILV_COMMENT_SOURCE_CODE OPENING_COMMENT_LINK
-    table = "FOREST_CLIENT"
+    # CLIENT_ID_TYPE_CODE CLIENT_LOCATION
+    table = "OPENING"
+
+    cons = ora.get_fk_constraints()
+    ora.disable_fk_constraints(cons)
     ora.truncate_table(table=table)
 
     parquet_file = (
@@ -523,3 +527,70 @@ def test_load_sdo_data(db_connection_fixture):
     ora.get_connection()
 
     ora.load_data(table=table, import_file=parquet_file)
+
+
+def test_debug_data_insert(db_connection_fixture):
+    ora = db_connection_fixture
+    # try code table
+    # OPENING_ATTACHMENT FOREST_COVER_GEOMETRY SILV_COMMENT_SOURCE_CODE OPENING_COMMENT_LINK
+    table = "FOREST_CLIENT"
+    ora.truncate_table(table=table)
+    from pandas import Timestamp
+
+    data = [
+        (
+            "00000001",
+            "MANAGEMENT ABEYANCE",
+            None,
+            None,
+            "DAC",
+            "C",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Timestamp("1989-11-26 08:51:50"),
+            "CONV",
+            70.0,
+            Timestamp("2023-02-13 16:21:39"),
+            "IDIR\\PWEHRELL",
+            70.0,
+            3.0,
+        )
+    ]
+
+    data = (
+        "00001003",
+        "ABBOTT",
+        "Matthew",
+        "Eric",
+        "ACT",
+        "I",
+        "1935-08-08 00:00:00.00",
+        "ABDL",
+        "688 052 315",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "1989-11-26 00:51:52",
+        "CONV",
+        70.0,
+        "1997-11-07 07:47:27",
+        "CLIADMIN",
+        70.0,
+        1.0,
+    )
+
+    LOGGER.debug("length of data: %s", len(data))
+    cur = ora.connection.cursor()
+    stmt = "INSERT INTO FOREST_CLIENT (CLIENT_NUMBER, CLIENT_NAME, LEGAL_FIRST_NAME, LEGAL_MIDDLE_NAME, CLIENT_STATUS_CODE, CLIENT_TYPE_CODE, BIRTHDATE, CLIENT_ID_TYPE_CODE, CLIENT_IDENTIFICATION, REGISTRY_COMPANY_TYPE_CODE, CORP_REGN_NMBR, CLIENT_ACRONYM, WCB_FIRM_NUMBER, OCG_SUPPLIER_NMBR, CLIENT_COMMENT, ADD_TIMESTAMP, ADD_USERID, ADD_ORG_UNIT, UPDATE_TIMESTAMP, UPDATE_USERID, UPDATE_ORG_UNIT, REVISION_COUNT) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14, :15, :16, :17, :18, :19, :20, :21, :22)"
+    # date_time_between_dates
+    cur.executemany(stmt, data)

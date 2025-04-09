@@ -107,7 +107,7 @@ DATA_TO_MASK = [
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="CLIENT_LOCN_NAME",
-        faker_method=lambda: fake.words(nb=3),
+        faker_method=lambda: " ".join(fake.words(nb=3)),
         percent_null=90,
     ),
     data_types.DataToMask(
@@ -177,7 +177,7 @@ DATA_TO_MASK = [
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="CLI_LOCN_COMMENT",
-        faker_method=lambda: fake.sentence,
+        faker_method=lambda: fake.sentence(),
         percent_null=40,
     ),
     data_types.DataToMask(
@@ -207,7 +207,7 @@ DATA_TO_MASK = [
         column_name="BIRTHDATE",
         faker_method=lambda: fake.date_time_between_dates(
             datetime_start="-99y", datetime_end="-20y"
-        ).strftime("%Y-%m-%d 00:00:00.00"),
+        ).strftime("%Y-%m-%d 00:00:00"),
         percent_null=80,
     ),
     data_types.DataToMask(
@@ -217,15 +217,15 @@ DATA_TO_MASK = [
         faker_method=lambda: fake.sentence(),
         percent_null=80,
     ),
-    data_types.DataToMask(
-        table_name="FOREST_CLIENT",
-        schema="THE",
-        column_name="CLIENT_ID_TYPE_CODE",
-        faker_method=lambda: fake.word(
-            ext_word_list=["SIN", "BCDL", "ABDL", "PSPT"]
-        ),
-        percent_null=85,
-    ),
+    # data_types.DataToMask(
+    #     table_name="FOREST_CLIENT",
+    #     schema="THE",
+    #     column_name="CLIENT_ID_TYPE_CODE",
+    #     faker_method=lambda: fake.word(
+    #         ext_word_list=["SIN", "BCDL", "ABDL", "PSPT"]
+    #     ),
+    #     percent_null=85,
+    # ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -233,15 +233,15 @@ DATA_TO_MASK = [
         faker_method=lambda: fake.ssn(),
         percent_null=95,
     ),
-    data_types.DataToMask(
-        table_name="FOREST_CLIENT",
-        schema="THE",
-        column_name="REGISTRY_COMPANY_TYPE_CODE",
-        faker_method=lambda: "".join(
-            random.choices(string.ascii_letters, k=4)
-        ).upper(),
-        percent_null=90,
-    ),
+    # data_types.DataToMask(
+    #     table_name="FOREST_CLIENT",
+    #     schema="THE",
+    #     column_name="REGISTRY_COMPANY_TYPE_CODE",
+    #     faker_method=lambda: "".join(
+    #         random.choices(string.ascii_letters, k=4)
+    #     ).upper(),
+    #     percent_null=90,
+    # ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -361,10 +361,14 @@ ORACLE_TYPES_TO_DDB_TYPES = {
 
 ORACLE_TYPES_DEFAULT_FAKER = {
     ORACLE_TYPES.VARCHAR2: lambda: fake.word(),
-    ORACLE_TYPES.DATE: lambda: fake.date_time_this_century(),
+    ORACLE_TYPES.DATE: lambda: fake.date_time_this_century().strftime(
+        "%Y-%m-%d 00:00:00"
+    ),
     ORACLE_TYPES.NUMBER: lambda: random.randint(0, 100000),
     ORACLE_TYPES.CHAR: lambda: fake.word(),
-    ORACLE_TYPES.TIMESTAMP: lambda: fake.date_time_this_century(),
+    ORACLE_TYPES.TIMESTAMP: lambda: fake.date_time_this_century().strftime(
+        "%Y-%m-%d 00:00:00"
+    ),
     ORACLE_TYPES.LONG: lambda: fake.word(),
 }
 

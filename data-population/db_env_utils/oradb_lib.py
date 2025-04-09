@@ -510,10 +510,7 @@ class OracleDatabase(db_lib.DB):
         failed_tables = []
         LOGGER.debug("table list: %s", table_list)
         LOGGER.debug("retries: %s", retries)
-        # tables_2_skip = [
-        #     "FOREST_COVER_GEOMETRY",
-        #     "STOCKING_STANDARD_GEOMETRY",
-        # ]
+        #  "FOREST_COVER_GEOMETRY", "STOCKING_STANDARD_GEOMETRY",
         tables_2_skip = []
 
         for table in table_list:
@@ -697,9 +694,9 @@ class OracleDatabase(db_lib.DB):
         """
         self.get_connection()
         cursor = self.connection.cursor()
-
+        LOGGER.info("disabling constraints...")
         for cons in constraint_list:
-            LOGGER.info("disabling constraint %s", cons.constraint_name)
+            # LOGGER.debug("disabling constraint %s", cons.constraint_name)
             query = (
                 f"ALTER TABLE {self.schema_2_sync}.{cons.table_name} "
                 f"DISABLE CONSTRAINT {cons.constraint_name}"
@@ -725,23 +722,32 @@ class OracleDatabase(db_lib.DB):
         """
         self.get_connection()
         cursor = self.connection.cursor()
-
+        LOGGER.info("enabling constraints...")
         for cons in constraint_list:
-            LOGGER.info("enabling constraint %s", cons.constraint_name)
+            # LOGGER.info("enabling constraint %s", cons.constraint_name)
             query = (
                 f"ALTER TABLE {self.schema_2_sync}.{cons.table_name} "
                 f"ENABLE CONSTRAINT {cons.constraint_name}"
             )
-            try:
-                cursor.execute(query)
-            except DatabaseError:
-                if retries > 20:
-                    raise
-                LOGGER.debug("fixing constraints..")
-                retries += 1
-                self.disable_fk_constraints(constraint_list)
-                self.delete_no_ri_data(cons)
-                self.enable_constraints(constraint_list, retries=retries)
+            # try:
+            cursor.execute(query)
+            # except DatabaseError as e:
+            #     if retries > 20:
+            #         LOGGER.error(
+            #             "max retries reached for constraint %s",
+            #             cons.constraint_name,
+            #         )
+            #         raise e
+            #     LOGGER.debug("fixing constraints.. failed on %s", cons)
+            #     retries += 1
+            #     try:
+            #         self.disable_fk_constraints(constraint_list)
+            #     except:
+            #         LOGGER.error("error disabling constraints")
+            #         raise Exception("error disabling constraints")
+            #     self.delete_no_ri_data(cons)
+            #     LOGGER.debug("calling back to enable constraints...")
+            #     self.enable_constraints(constraint_list, retries=retries)
 
         cursor.close()
 
@@ -1049,7 +1055,13 @@ class OracleDatabase(db_lib.DB):
         columns = [row[0].upper() for row in results]
         if with_length_precision_scale:
             columns = [
-                [row[0].upper(), row[1], row[2], row[3], row[4]]
+                [
+                    row[0].upper(),
+                    constants.ORACLE_TYPES[row[1]],
+                    row[2],
+                    row[3],
+                    row[4],
+                ]
                 for row in results
             ]
         elif with_type:
@@ -1873,7 +1885,7 @@ class OracleDatabase(db_lib.DB):
                 total_rows_read = total_rows_read + len(to_ora_df)
                 # override the current class implementation with my own to_sql
                 # method
-                to_ora_df.__class__ = DataFrameFast
+                to_ora_df.__class__ = DataFrameExtended
 
                 LOGGER.debug("columns in dataframe: %s", to_ora_df.columns)
                 to_ora_df.to_sql(
@@ -2278,6 +2290,7 @@ class DataFrameExtended(pd.DataFrame):
             table_name,
             with_length_precision_scale=True,
         )
+        # LOGGER.debug("columns and types: %s", column_list)
         cols = [column_data_list[0].upper() for column_data_list in column_list]
         insert_placeholders = self.get_value_placeholders(
             column_list=column_list,
@@ -2291,7 +2304,9 @@ class DataFrameExtended(pd.DataFrame):
         )
         LOGGER.debug("insert statement: %s", cmd)
 
-        table_data = list(self.itertuples(index=index))
+        # add faker values to the data if necesssary
+
+        # table_data = list(self.itertuples(index=index))
         # LOGGER.debug("type(table_data) %s", type(table_data))
         # Replace nan with None for SQL to accept it.
 
@@ -2302,16 +2317,35 @@ class DataFrameExtended(pd.DataFrame):
             for row in self.itertuples(index=False, name=None)
         ]
 
-        if len(table_data) == 0:
+        if len(data) == 0:
             pass
         else:
             # input sizes need to be adjusted to get WKT data which typically
             # exceeds the default size of 4000 for VARCHAR2.
             input_sizes = self.get_input_sizes(column_list=column_list)
+            LOGGER.debug("input_sizes: %s", input_sizes)
             with oradb.connection.cursor() as cursor:
-                cursor.setinputsizes(*input_sizes)
+                cursor.execute(
+                    "ALTER SESSION SET NLS_TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS'"
+                )
+                cursor.execute(
+                    "ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD HH24:MI:SS'"
+                )
                 LOGGER.debug("writing to oracle...")
-                cursor.executemany(cmd, table_data)
+                # LOGGER.debug("first row: %s", data[0])
+                # try:
+
+                cursor.setinputsizes(*input_sizes)
+                cursor.executemany(cmd, data)
+                # except:
+                #     oradb.truncate_table(table=table_name)
+
+                #     for row in data:
+                #         try:
+                #             cursor.execute(cmd, row)
+                #         except Exception as e:
+                #             LOGGER.debug("bad row: %s", row)
+                #             raise e
 
             LOGGER.debug("data has been entered!")
 
@@ -2337,6 +2371,10 @@ class DataFrameExtended(pd.DataFrame):
             return int(value)  # Convert int64 to native int
         elif isinstance(value, numpy.floating):
             return float(value)  # Convert float64 to native float
+        elif isinstance(value, pd.Timestamp):
+            return datetime.datetime.fromtimestamp(value.timestamp()).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
         elif pd.isna(value):
             return None  # Convert NaN to None for Oracle NULL
         return value  # Return as-is for other types (e.g., str)        )
@@ -2381,11 +2419,14 @@ class DataFrameExtended(pd.DataFrame):
         for column_data_list in column_list:
             column_name = column_data_list[0]
             column_type = column_data_list[1]
+            # column_type = constants.ORACLE_TYPES[column_type]
+            LOGGER.debug("column name: %s", column_name)
+            LOGGER.debug("column type: %s", column_type)
             col_placeholder = f":{col_cnt}"
-            mask_obj = oradb.data_classification.get_mask_info(
-                table_name=table_name,
-                column_name=column_name,
-            )
+            # mask_obj = oradb.data_classification.get_mask_info(
+            #     table_name=table_name,
+            #     column_name=column_name,
+            # )
             if column_type in [
                 constants.ORACLE_TYPES.BLOB,
                 constants.ORACLE_TYPES.CLOB,
@@ -2397,62 +2438,21 @@ class DataFrameExtended(pd.DataFrame):
                 insert_placeholders.append(
                     f"SDO_UTIL.FROM_WKTGEOMETRY({col_placeholder}, 3005)",
                 )
-            elif mask_obj:
-                faker_method = mask_obj.faker_method
-                fake_data = self.get_default_fake_data(
-                    column_data_list,
-                    faker_method,
-                )
-                # may need a case, only want to insert if not null
-                insert_placeholders.append(
-                    f"NVL2({col_placeholder}, {fake_data}, NULL)",
-                )
+            # elif mask_obj:
+            #     faker_method = mask_obj.faker_method
+            #     fake_data = self.get_default_fake_data(
+            #         column_data_list,
+            #         faker_method,
+            #     )
+            #     # may need a case, only want to insert if not null
+            #     insert_placeholders.append(
+            #         f"NVL2({col_placeholder}, {fake_data}, NULL)",
+            #     )
             # TODO: handle the mask data here once I get this working
             else:
                 insert_placeholders.append(col_placeholder)
             col_cnt += 1
         return insert_placeholders
-
-    def get_default_fake_data(
-        self, column_data: list[str | int], faker_method=None
-    ) -> str | int:
-        """
-        Returns fake data based on the data type.
-
-        column_data:
-            0 - column name
-            1 = column type
-            2 = column length
-            3 = column precision
-            4 = column scale
-        """
-        column_type = constants.ORACLE_TYPES[column_data[1]]
-        fake_data = None
-        if not faker_method:
-            faker_method = constants.ORACLE_TYPES_DEFAULT_FAKER[column_type]
-        if column_type in [
-            constants.ORACLE_TYPES.VARCHAR2,
-        ]:
-            fake_data = faker_method()[0 : column_data[2]]
-            fake_data = f"'{fake_data}'"
-        elif column_type in [
-            constants.ORACLE_TYPES.CHAR,
-            constants.ORACLE_TYPES.LONG,
-        ]:
-            fake_data = faker_method()
-            fake_data = f"'{fake_data}'"
-        elif column_type in [
-            constants.ORACLE_TYPES.NUMBER,
-        ]:
-            fake_data = faker_method()
-        elif column_type in [constants.ORACLE_TYPES.DATE]:
-            fake_data = faker_method()
-            fake_data = f"'{fake_data}'"
-        else:
-            msg = "no faker defined for the data type: %s"
-            LOGGER.error(msg, column_data)
-            raise ValueError(msg)
-        return fake_data
 
     def to_list(self) -> list[list]:
         """
@@ -2747,6 +2747,56 @@ class Importer:
             col_cnt += 1
         return select_column_list
 
+    def get_default_fake_data(
+        self, column_data: list[str | int], faker_method=None
+    ) -> str | int:
+        """
+        Returns fake data based on the data type.
+
+        column_data:
+            0 - column name
+            1 = column type
+            2 = column length
+            3 = column precision
+            4 = column scale
+        """
+        column_type = column_data[1]
+        # LOGGER.debug("column_type: %s", column_type)
+        fake_data = None
+        if not faker_method:
+            faker_method = constants.ORACLE_TYPES_DEFAULT_FAKER[column_type]
+        if column_type in [
+            constants.ORACLE_TYPES.VARCHAR2,
+        ]:
+            try:
+                fake_data = faker_method()
+                fake_data = fake_data[0 : column_data[2]]
+            except:
+                LOGGER.debug("faker_method: %s", faker_method)
+                LOGGER.debug("column_data: %s", column_data)
+                LOGGER.debug("fakedata: %s", fake_data)
+                raise
+
+        elif column_type in [
+            constants.ORACLE_TYPES.CHAR,
+            constants.ORACLE_TYPES.LONG,
+        ]:
+            fake_data = faker_method()
+            # fake_data = f"'{fake_data}'"
+        elif column_type in [
+            constants.ORACLE_TYPES.NUMBER,
+        ]:
+            fake_data = faker_method()
+        elif column_type in [constants.ORACLE_TYPES.DATE]:
+            fake_data = faker_method()
+            # fake_data = f"'{fake_data}'"
+        else:
+            msg = "no faker defined for the data type: %s"
+            LOGGER.error(msg, column_data)
+            raise ValueError(msg)
+        # LOGGER.debug("fake data: %s", fake_data)
+        return fake_data
+
     def import_data(self):
         # make sure there is a connection
         self.oradb.get_sqlalchemy_engine()
@@ -2756,7 +2806,9 @@ class Importer:
         if self.sdo_cols is None:
             self.sdo_cols = self.oradb.get_sdo_geometry_columns(self.table_name)
         import_column_list = self.get_import_column_list(use_numeric=True)
-        column_list = self.oradb.get_column_list(table=self.table_name)
+        column_list = self.oradb.get_column_list(
+            table=self.table_name, with_length_precision_scale=True
+        )
         dest_tab_rows = self.oradb.get_row_count(self.table_name)
         LOGGER.debug("table: %s has %s rows", self.table_name, dest_tab_rows)
         if not dest_tab_rows:
@@ -2779,6 +2831,37 @@ class Importer:
                 # ensure all cols in the dataframe are upper case, to match
                 # column names in oracle
                 ddb_chunk.columns = [col.upper() for col in ddb_chunk.columns]
+
+                # inject in fake data for the columns that are classified
+                if self.oradb.data_classification.has_masking(
+                    table_name=self.table_name,
+                ):
+                    LOGGER.debug("adding fake data to %s", self.table_name)
+                    for column_data_list in column_list:
+                        column_name = column_data_list[0]
+                        mask_obj = self.oradb.data_classification.get_mask_info(
+                            table_name=self.table_name,
+                            column_name=column_name,
+                        )
+                        if mask_obj:
+                            LOGGER.debug("mask_obj: %s", mask_obj)
+                            faker_method = mask_obj.faker_method
+                            # fake_data = self.get_default_fake_data(
+                            #     column_data_list,
+                            #     faker_method,
+                            # )
+                            mask = ddb_chunk[
+                                column_name
+                            ].notnull()  # or .notna()
+                            # LOGGER.debug("mask: %s", mask)
+                            ddb_chunk.loc[mask, column_name] = [
+                                self.get_default_fake_data(
+                                    column_data=column_data_list,
+                                    faker_method=faker_method,
+                                )
+                                for _ in range(mask.sum())
+                            ]
+                            # self[column_name] = fake_data
 
                 # insert_statement = f"""
                 #     INSERT INTO {self.db_schema}.{self.table_name} ({f",".join(column_list)})
@@ -2829,8 +2912,8 @@ class Importer:
                     index=False,
                 )
                 chunk_count += 1
-                if chunk_count > 3:
-                    break
+                # if chunk_count > 3:
+                #     break
 
                 LOGGER.info("loaded %s rows", chunk_count * self.chunk_size)
                 LOGGER.debug("getting new chunk to load...")
@@ -3204,6 +3287,19 @@ class DataClassification:
             )
         return constants.OracleMaskValuesMap[data_type]
 
+    def has_masking(self, table_name: str) -> bool:
+        """
+        Check if the table has any masking.
+
+        :param table_name: name of the table
+        :type table_name: str
+        :return: True if the table has any masking, False otherwise
+        :rtype: bool
+        """
+        if table_name.upper() in self.dc_struct:
+            return True
+        return False
+
     def load(self) -> None:
         """
         Merge classifications in constants with classes defined in the ss.
@@ -3229,14 +3325,12 @@ class DataClassification:
                 tab = row["TABLE NAME"].upper()
                 col = row["COLUMN NAME"].upper()
 
-                class_rec = (
-                    data_types.DataToMask(
-                        table_name=tab,
-                        schema=self.schema,
-                        column_name=col,
-                        faker_method=None,
-                        percent_null=0,
-                    ),
+                class_rec = data_types.DataToMask(
+                    table_name=tab,
+                    schema=self.schema,
+                    column_name=col,
+                    faker_method=None,
+                    percent_null=0,
                 )
                 if tab not in self.dc_struct:
                     self.dc_struct[tab] = {}
