@@ -342,7 +342,7 @@ class OracleDatabase(db_lib.DB):
         import_file: pathlib.Path,
         *,
         refreshdb: bool = False,
-    ):
+    ) -> bool:
         self.get_connection()
         if refreshdb:
             LOGGER.debug("refresh option enabled... truncating table %s", table)
@@ -387,28 +387,28 @@ class OracleDatabase(db_lib.DB):
         #     LOGGER.debug("table: %s has %s rows", table, dest_tab_rows)
 
         # only load data if its a zero row count.
-        if not dest_tab_rows:
-            if self.is_geoparquet(import_file):
-                LOGGER.info("geoparquet table: %s", table)
-                LOGGER.info("forking to use the SDO_GEOMETRY loader")
-                self.load_data_geoparquet(
-                    table=table,
-                    import_file=import_file,
-                )
-            elif self.has_raw_columns(table) or self.has_blob(table):
-                self.load_data_with_raw_blobby(
-                    table=table,
-                    import_file=import_file,
-                )
-            else:
-                LOGGER.debug(
-                    "regular parquet file... passing to super class method",
-                )
-                super().load_data(
-                    table,
-                    import_file,
-                    refreshdb=refreshdb,
-                )
+        # if not dest_tab_rows:
+        #     if self.is_geoparquet(import_file):
+        #         LOGGER.info("geoparquet table: %s", table)
+        #         LOGGER.info("forking to use the SDO_GEOMETRY loader")
+        #         self.load_data_geoparquet(
+        #             table=table,
+        #             import_file=import_file,
+        #         )
+        #     elif self.has_raw_columns(table) or self.has_blob(table):
+        #         self.load_data_with_raw_blobby(
+        #             table=table,
+        #             import_file=import_file,
+        #         )
+        #     else:
+        #         LOGGER.debug(
+        #             "regular parquet file... passing to super class method",
+        #         )
+        #         super().load_data(
+        #             table,
+        #             import_file,
+        #             refreshdb=refreshdb,
+        #         )
 
     # def load_data_delete(
     #     self,
@@ -708,8 +708,8 @@ class OracleDatabase(db_lib.DB):
         self,
         constraint_list: list[db_lib.TableConstraints],
         *,
-        retries=0,
-        auto_delete=False,
+        retries: int = 0,
+        auto_delete: bool = False,
     ) -> None:
         """
         Enable all foreign key constraints.
@@ -799,7 +799,8 @@ class OracleDatabase(db_lib.DB):
             ON
                 T1.{column_name_str} = T2.{ref_col_name_str}
             WHERE
-                ( T1.{column_name_str} is not null and T2.{ref_col_name_str} is null )
+                ( T1.{column_name_str} is not null and
+                  T2.{ref_col_name_str} is null )
         """
         # OR ( T1.{column_name_str} is null and T2.{ref_col_name_str} is not null )
         LOGGER.debug("query: %s", query)
@@ -2436,7 +2437,7 @@ class DataFrameExtended(pd.DataFrame):
                 )
             elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
                 insert_placeholders.append(
-                    f"SDO_UTIL.FROM_WKTGEOMETRY({col_placeholder}, 3005)",
+                    f"SDO_GEOM.SDO_MBR(SDO_UTIL.FROM_WKTGEOMETRY({col_placeholder}, 3005))",
                 )
             # elif mask_obj:
             #     faker_method = mask_obj.faker_method
@@ -2657,95 +2658,95 @@ class Importer:
         self.oradb.get_connection()
 
         # populated when needed
-        self.sdo_cols = []
-        self.blob_cols = []
-        self.mask_cols = []
+        # self.sdo_cols = []
+        # self.blob_cols = []
+        # self.mask_cols = []
 
-        self.__populate_col_types()
+        # self.__populate_col_types()
 
-    def __populate_col_types(self):
-        """
-        populates the following parameters:
-        * blob_cols
-        * sdo_cols
-        * mask_cols
-        """
-        # ensure a connection has been built
-        self.oradb.get_connection()
-        column_list = self.oradb.get_column_list(
-            self.table_name,
-            with_type=True,
-        )
-        for column_name, column_type in column_list:
-            mask_obj = self.data_cls.get_mask_info(self.table_name, column_name)
-            column_name_for_placeholder = column_name
-            if column_type in [
-                constants.ORACLE_TYPES.BLOB,
-                constants.ORACLE_TYPES.CLOB,
-            ]:
-                self.blob_cols.append(column_name)
-            elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
-                self.sdo_cols.append(column_name)
-            elif mask_obj:
-                self.mask_cols.append(column_name)
+    # def __populate_col_types(self):
+    #     """
+    #     populates the following parameters:
+    #     * blob_cols
+    #     * sdo_cols
+    #     * mask_cols
+    #     """
+    #     # ensure a connection has been built
+    #     self.oradb.get_connection()
+    #     column_list = self.oradb.get_column_list(
+    #         self.table_name,
+    #         with_type=True,
+    #     )
+    #     for column_name, column_type in column_list:
+    #         mask_obj = self.data_cls.get_mask_info(self.table_name, column_name)
+    #         column_name_for_placeholder = column_name
+    #         if column_type in [
+    #             constants.ORACLE_TYPES.BLOB,
+    #             constants.ORACLE_TYPES.CLOB,
+    #         ]:
+    #             self.blob_cols.append(column_name)
+    #         elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
+    #             self.sdo_cols.append(column_name)
+    #         elif mask_obj:
+    #             self.mask_cols.append(column_name)
 
-    def get_import_column_list(self, use_numeric: bool = False) -> list[str]:
-        """
-        Get the list of columns that are to be imported.
+    # def get_import_column_list(self, use_numeric: bool = False) -> list[str]:
+    #     """
+    #     Get the list of columns that are to be imported.
 
-        Addresses type conversions for some data types as well as handling
-        the generation of fake data for classified columns.
+    #     Addresses type conversions for some data types as well as handling
+    #     the generation of fake data for classified columns.
 
-        :return: a list of columns that can be used in an insert statement.
-        :rtype: list[str]
-        """
-        column_list = self.oradb.get_column_list(
-            self.table_name,
-            with_type=True,
-        )
-        # if self.blob_cols is None:
-        #     self.blob_cols = self.oradb.get_blob_columns(self.table_name)
+    #     :return: a list of columns that can be used in an insert statement.
+    #     :rtype: list[str]
+    #     """
+    #     column_list = self.oradb.get_column_list(
+    #         self.table_name,
+    #         with_type=True,
+    #     )
+    #     # if self.blob_cols is None:
+    #     #     self.blob_cols = self.oradb.get_blob_columns(self.table_name)
 
-        # if self.sdo_cols is None:
-        #     self.sdo_cols = self.oradb.get_sdo_geometry_columns(self.table_name)
+    #     # if self.sdo_cols is None:
+    #     #     self.sdo_cols = self.oradb.get_sdo_geometry_columns(self.table_name)
 
-        select_column_list = []
-        blob_cols = []
-        # Define a mapping
-        col_cnt = 1
-        for column_name, column_type in column_list:
-            mask_obj = self.data_cls.get_mask_info(self.table_name, column_name)
-            column_name_for_placeholder = column_name
-            if use_numeric:
-                column_name_for_placeholder = str(col_cnt)
-            if column_type in [
-                constants.ORACLE_TYPES.BLOB,
-                constants.ORACLE_TYPES.CLOB,
-            ]:
-                blob_cols.append(column_name)
-                # select_column_list.append(f"TO_BLOB(:{column_name})")
-                # NVL(TO_BLOB(:2), EMPTY_BLOB()))
-                select_column_list.append(
-                    f"NVL(TO_BLOB(:{column_name_for_placeholder}), EMPTY_BLOB())"
-                )
-            # # SDO_UTIL.FROM_WKBGEOMETRY(:3)
-            elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
-                select_column_list.append(
-                    f"SDO_GEOM.SDO_MBR(SDO_UTIL.FROM_WKTGEOMETRY(:{column_name_for_placeholder}, 3005))",
-                )
-                # f"SDO_UTIL.FROM_WKBGEOMETRY(TO_BLOB(:{column_name}), 3005)",
+    #     select_column_list = []
+    #     blob_cols = []
+    #     # Define a mapping
+    #     col_cnt = 1
+    #     for column_name, column_type in column_list:
+    #         mask_obj = self.data_cls.get_mask_info(self.table_name, column_name)
+    #         column_name_for_placeholder = column_name
+    #         if use_numeric:
+    #             column_name_for_placeholder = str(col_cnt)
+    #         if column_type in [
+    #             constants.ORACLE_TYPES.BLOB,
+    #             constants.ORACLE_TYPES.CLOB,
+    #         ]:
+    #             blob_cols.append(column_name)
+    #             # select_column_list.append(f"TO_BLOB(:{column_name})")
+    #             # NVL(TO_BLOB(:2), EMPTY_BLOB()))
+    #             select_column_list.append(
+    #                 f"NVL(TO_BLOB(:{column_name_for_placeholder}), EMPTY_BLOB())"
+    #             )
+    #         # # SDO_UTIL.FROM_WKBGEOMETRY(:3)
+    #         elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
+    #             select_column_list.append(
+    #                 f"SDO_GEOM.SDO_MBR(SDO_UTIL.FROM_WKTGEOMETRY(:{column_name_for_placeholder}, 3005))",
+    #             )
+    #             # f"SDO_UTIL.FROM_WKBGEOMETRY(TO_BLOB(:{column_name}), 3005)",
 
-            # TODO: figure out the masking after get the data sorted out
-            # # elif column_name in mask_columns:
-            # elif mask_obj:
-            #     mask_dummy_val = self.data_cls.get_mask_dummy_val(column_type)
-            #     column_value = f"nvl2({column_name}, {mask_dummy_val}, NULL) as {column_name.upper()}"
-            #     select_column_list.append(column_value)
-            else:
-                select_column_list.append(f":{column_name_for_placeholder}")
+    #         # TODO: figure out the masking after get the data sorted out
+    #         # # elif column_name in mask_columns:
+    #         # elif mask_obj:
+    #         #     mask_dummy_val = self.data_cls.get_mask_dummy_val(column_type)
+    #         #     column_value = f"nvl2({column_name}, {mask_dummy_val}, NULL) as {column_name.upper()}"
+    #         #     select_column_list.append(column_value)
+    #         else:
+    #             select_column_list.append(f":{column_name_for_placeholder}")
 
-            col_cnt += 1
-        return select_column_list
+    #         col_cnt += 1
+    #     return select_column_list
 
     def get_default_fake_data(
         self, column_data: list[str | int], faker_method=None
@@ -2800,12 +2801,12 @@ class Importer:
     def import_data(self):
         # make sure there is a connection
         self.oradb.get_sqlalchemy_engine()
-        if self.blob_cols is None:
-            self.blob_cols = self.oradb.get_blob_columns(self.table_name)
+        # if self.blob_cols is None:
+        #     self.blob_cols = self.oradb.get_blob_columns(self.table_name)
 
-        if self.sdo_cols is None:
-            self.sdo_cols = self.oradb.get_sdo_geometry_columns(self.table_name)
-        import_column_list = self.get_import_column_list(use_numeric=True)
+        # if self.sdo_cols is None:
+        #     self.sdo_cols = self.oradb.get_sdo_geometry_columns(self.table_name)
+        # import_column_list = self.get_import_column_list(use_numeric=True)
         column_list = self.oradb.get_column_list(
             table=self.table_name, with_length_precision_scale=True
         )
@@ -2918,60 +2919,61 @@ class Importer:
                 LOGGER.info("loaded %s rows", chunk_count * self.chunk_size)
                 LOGGER.debug("getting new chunk to load...")
             self.oradb.connection.commit()
+        return True
 
-    def generate_import_sql_query(self) -> str:
-        """
-        Return a sql query to import the dataframe with.
+    # def generate_import_sql_query(self) -> str:
+    #     """
+    #     Return a sql query to import the dataframe with.
 
-        The query addresses the following conditions:
-        * blob data is not copied and is replaced with EMPTY_BLOB() as <column>
-        * sdo geometry is converted to wkt
-        * if columns have been defined as sensitive then they are not extracted
-            and are replaced with nulls if nulls and placeholder if not.
-            placeholder values are dependent on data type.  For example
-            varchar will get '1' nums 1 etc..
+    #     The query addresses the following conditions:
+    #     * blob data is not copied and is replaced with EMPTY_BLOB() as <column>
+    #     * sdo geometry is converted to wkt
+    #     * if columns have been defined as sensitive then they are not extracted
+    #         and are replaced with nulls if nulls and placeholder if not.
+    #         placeholder values are dependent on data type.  For example
+    #         varchar will get '1' nums 1 etc..
 
-        :return: a query that can be used to extract the data in the table.
-        :rtype: str
-        """
+    #     :return: a query that can be used to extract the data in the table.
+    #     :rtype: str
+    #     """
 
-        column_list = self.oradb.get_column_list(
-            self.table_name, with_type=True
-        )
-        blob_columns = self.oradb.get_blob_columns(self.table_name)
-        sdo_geometry_columns = self.oradb.get_sdo_geometry_columns(
-            self.table_name
-        )
+    #     column_list = self.oradb.get_column_list(
+    #         self.table_name, with_type=True
+    #     )
+    #     blob_columns = self.oradb.get_blob_columns(self.table_name)
+    #     sdo_geometry_columns = self.oradb.get_sdo_geometry_columns(
+    #         self.table_name
+    #     )
 
-        select_column_list = []
+    #     select_column_list = []
 
-        # Define a mapping
-        for column_name, column_type in column_list:
-            mask_obj = self.data_cls.get_mask_info(self.table_name, column_name)
-            if column_type in [
-                constants.ORACLE_TYPES.BLOB,
-                constants.ORACLE_TYPES.CLOB,
-            ]:
-                select_column_list.append(
-                    f"EMPTY_BLOB() AS {column_name}",
-                )
-            elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
-                select_column_list.append(
-                    f"SDO_UTIL.TO_WKTGEOMETRY({column_name}) AS {column_name}",
-                )
-            # elif column_name in mask_columns:
-            elif mask_obj:
-                mask_dummy_val = self.data_cls.get_mask_dummy_val(column_type)
-                column_value = f"nvl2({column_name}, {mask_dummy_val}, NULL) as {column_name.upper()}"
-                select_column_list.append(column_value)
-            else:
-                select_column_list.append(column_name)
-        query = (
-            f"SELECT {', '.join(select_column_list)} from "  # noqa: S608
-            f"{self.db_schema.upper()}.{self.table_name.upper()}"
-        )
-        LOGGER.debug("query: %s", query)
-        return query
+    #     # Define a mapping
+    #     for column_name, column_type in column_list:
+    #         mask_obj = self.data_cls.get_mask_info(self.table_name, column_name)
+    #         if column_type in [
+    #             constants.ORACLE_TYPES.BLOB,
+    #             constants.ORACLE_TYPES.CLOB,
+    #         ]:
+    #             select_column_list.append(
+    #                 f"EMPTY_BLOB() AS {column_name}",
+    #             )
+    #         elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
+    #             select_column_list.append(
+    #                 f"SDO_GEOM.SDO_MBR(SDO_UTIL.TO_WKTGEOMETRY({column_name})) AS {column_name}",
+    #             )
+    #         # elif column_name in mask_columns:
+    #         elif mask_obj:
+    #             mask_dummy_val = self.data_cls.get_mask_dummy_val(column_type)
+    #             column_value = f"nvl2({column_name}, {mask_dummy_val}, NULL) as {column_name.upper()}"
+    #             select_column_list.append(column_value)
+    #         else:
+    #             select_column_list.append(column_name)
+    #     query = (
+    #         f"SELECT {', '.join(select_column_list)} from "  # noqa: S608
+    #         f"{self.db_schema.upper()}.{self.table_name.upper()}"
+    #     )
+    #     LOGGER.debug("query: %s", query)
+    #     return query
 
 
 class DuckDbUtil:
