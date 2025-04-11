@@ -12,6 +12,7 @@ import pathlib
 import subprocess
 
 import constants
+import data_types
 import db_lib
 import psycopg2
 import sqlalchemy
@@ -186,7 +187,7 @@ class PostgresDatabase(db_lib.DB):
             raise
         cursor.close()
 
-    def get_fk_constraints(self) -> list[db_lib.TableConstraints]:
+    def get_fk_constraints(self) -> list[data_types.TableConstraints]:
         """
         Return the foreign key constraints for the schema.
 
@@ -262,7 +263,7 @@ class PostgresDatabase(db_lib.DB):
                     existing_record.referenced_columns.append(row[5])
                     constraint_data_index[row[0]] = existing_record
             else:
-                cons_struct = db_lib.TableConstraints(
+                cons_struct = data_types.TableConstraints(
                     constraint_name=row[0],
                     table_name=row[1],
                     column_names=[row[2]],
@@ -278,7 +279,7 @@ class PostgresDatabase(db_lib.DB):
 
     def disable_fk_constraints(
         self,
-        constraint_list: list[db_lib.TableConstraints],
+        constraint_list: list[data_types.TableConstraints],
     ) -> None:
         """
         Disable all foreign key constraints.
@@ -317,7 +318,7 @@ class PostgresDatabase(db_lib.DB):
 
     def enable_constraints(
         self,
-        constraint_list: list[db_lib.TableConstraints],
+        constraint_list: list[data_types.TableConstraints],
         retries: int = 0,
     ) -> None:
         """
@@ -580,7 +581,7 @@ class ConstraintBackup:
         connection_params.schema_to_sync = db_inst.schema_2_sync
 
         self.connection_params = connection_params
-        self.constraint_list: list[db_lib.TableConstraints]
+        self.constraint_list: list[data_types.TableConstraints]
 
     def get_constraint_backup_file_path(self) -> pathlib.Path:
         """
@@ -602,7 +603,7 @@ class ConstraintBackup:
 
     def backup_constraints(
         self,
-        constraint_list: list[db_lib.TableConstraints],
+        constraint_list: list[data_types.TableConstraints],
     ) -> None:
         """
         Backup the constraints to a file.
@@ -627,7 +628,9 @@ class ConstraintBackup:
                 alter_statement = self.get_enable_alter_statement(cons)
                 f.write(alter_statement)
 
-    def get_enable_alter_statement(self, cons: db_lib.TableConstraints) -> str:
+    def get_enable_alter_statement(
+        self, cons: data_types.TableConstraints
+    ) -> str:
         """
         Return the alter statement for the constraint.
 
@@ -653,7 +656,9 @@ class ConstraintBackup:
         LOGGER.debug("alter statement: %s", alter_statement)
         return alter_statement
 
-    def get_disable_alter_statement(self, cons: db_lib.TableConstraints) -> str:
+    def get_disable_alter_statement(
+        self, cons: data_types.TableConstraints
+    ) -> str:
         """
         Return the alter statement to disable the constraint.
 

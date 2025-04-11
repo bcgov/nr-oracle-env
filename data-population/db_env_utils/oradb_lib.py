@@ -28,7 +28,6 @@ import data_types
 import db_lib
 import duckdb
 import env_config
-import geopandas as gpd
 import numpy
 import oracledb
 import pandas as pd
@@ -44,7 +43,7 @@ if TYPE_CHECKING:
     import pathlib
 
     import app_paths
-
+    import geopandas as gpd
 
 LOGGER = logging.getLogger(__name__)
 
@@ -252,90 +251,6 @@ class OracleDatabase(db_lib.DB):
         self.connection.commit()
         cursor.close()
 
-    # def load_data_geoparquet(
-    #     self,
-    #     table: str,
-    #     import_file: pathlib.Path,
-    # ) -> None:
-    #     """
-    #     Load data from a geoparquet file.
-
-    #     :param table: the name of the table that already exists, that the
-    #         parquet data will be loaded to.
-    #     :type table: str
-    #     :param import_file: the geoparquet file that will be loaded
-    #     :type import_file: pathlib.Path
-    #     :param purge: _description_, defaults to False
-    #     :type purge: bool, optional
-    #     """
-    #     self.get_connection()  # implement as a decorator!
-
-    #     cursor = self.connection.cursor()
-    #     cursor.arraysize = self.ora_cur_arraysize
-
-    #     spatial_column = self.get_geoparquet_spatial_column(import_file)
-    #     spatial_column_wkt = spatial_column + "_wkt"
-    #     spatial_column_wkb = spatial_column + "_wkb"
-    #     LOGGER.debug("spatial_column is: %s", spatial_column)
-    #     # LOGGER.debug("spatial_column wkt is: %s", spatial_column_wkt)
-
-    #     gdf = gpd.read_parquet(import_file)
-
-    #     gdf[spatial_column_wkt] = gdf[spatial_column].apply(
-    #         lambda x: shapely.wkt.dumps(x) if x else None,
-    #     )
-    #     gdf[spatial_column_wkb] = gdf[spatial_column].apply(
-    #         lambda x: shapely.wkb.dumps(x) if x else None,
-    #     )
-
-    #     # patch the nan to None in the df
-    #     gdf = gdf.replace({numpy.nan: None})
-
-    #     LOGGER.debug(spatial_column)
-    #     LOGGER.debug("gdf columns: %s", gdf.columns)
-
-    #     columns = self.get_column_list(table)
-    #     LOGGER.debug("columns: %s", columns)
-    #     spatial_columns = self.get_sdo_geometry_columns(table)
-    #     columns_string = ", ".join(columns)
-    #     value_param_list = []
-    #     for column in columns:
-    #         if column in spatial_columns:
-    #             # value_param_list.append(f"SDO_GEOMETRY(:{column}, 3005)")
-    #             value_param_list.append(
-    #                 f"SDO_UTIL.FROM_WKBGEOMETRY(TO_BLOB(:{column}), 3005)"
-    #             )
-    #         else:
-    #             value_param_list.append(f":{column}")
-    #     column_value_str = ", ".join(value_param_list)
-    #     insert_stmt = f"""
-    #         INSERT INTO {self.schema_2_sync}.{table} ({columns_string})
-    #         VALUES ({column_value_str})
-    #     """  # noqa: S608
-    #     LOGGER.debug("statement: %s", insert_stmt)
-    #     LOGGER.debug("Loading data...")
-    #     rowcnt = 0
-    #     for index, row in gdf.iterrows():
-    #         data_dict = {}
-    #         for column in columns:
-    #             if column.lower() == spatial_column.lower():
-    #                 log_msg = (
-    #                     "dealing with spatial column: %s "
-    #                     "gdf column: %s data: %s"
-    #                 )
-    #                 blob_var = cursor.var(oracledb.BLOB)
-    #                 blob_var.setvalue(0, row[spatial_column_wkt])
-    #                 data_dict[column] = blob_var
-    #             else:
-    #                 data_dict[column] = row[column.lower()]
-    #         cursor.execute(insert_stmt, data_dict)
-    #         rowcnt += 1
-    #         if not rowcnt % 1000:
-    #             LOGGER.debug("   inserted rows: %s", 1000 * row)
-
-    #     cursor.close()
-    #     self.connection.commit()
-
     def load_data(
         self,
         table: str,
@@ -343,6 +258,18 @@ class OracleDatabase(db_lib.DB):
         *,
         refreshdb: bool = False,
     ) -> bool:
+        """
+        Load the data from the file into the database table.
+
+        :param table: _description_
+        :type table: str
+        :param import_file: _description_
+        :type import_file: pathlib.Path
+        :param refreshdb: _description_, defaults to False
+        :type refreshdb: bool, optional
+        :return: _description_
+        :rtype: bool
+        """
         self.get_connection()
         if refreshdb:
             LOGGER.debug("refresh option enabled... truncating table %s", table)
@@ -609,7 +536,7 @@ class OracleDatabase(db_lib.DB):
                 LOGGER.error("Max retries reached for table %s", table)
                 raise sqlalchemy.exc.IntegrityError
 
-    def get_fk_constraints(self) -> list[db_lib.TableConstraints]:
+    def get_fk_constraints(self) -> list[data_types.TableConstraints]:
         """
         Return the foreign key constraints for the schema.
 
@@ -636,8 +563,10 @@ class OracleDatabase(db_lib.DB):
                         acc.constraint_name
                     JOIN all_constraints arc ON ac.r_constraint_name =
                         arc.constraint_name
-                    JOIN all_cons_columns arcc ON arc.constraint_name =
-                        arcc.constraint_name
+                    JOIN all_cons_columns arcc ON
+                        arc.constraint_name = arcc.constraint_name
+                        AND ac.table_name = acc.table_name
+					    AND acc.column_name = arcc.column_name
                 WHERE
                     ac.constraint_type = 'R'
                     AND ac.owner = :schema
@@ -650,10 +579,45 @@ class OracleDatabase(db_lib.DB):
         LOGGER.debug("schema_2_sync: %s", self.schema_2_sync)
         cursor.execute(query, schema=self.schema_2_sync.upper())
         constraint_list = []
+        # need to load to a struct so can identify multiple records
+        # per table
+        # struct will be:
+        #   constraint_name
+        #       src_table
+        #           data_types.TableConstraints
+
+        # constraint_name: str
+        # table_name: str
+        # column_names: list[str]
+        # r_constraint_name: str
+        # referenced_table: str
+        # referenced_columns: list[str]
+
+        const_struct = {}
         for row in cursor:
             LOGGER.debug(row)
-            tab_con = db_lib.TableConstraints(*row)
-            constraint_list.append(tab_con)
+            # new constraint record
+            if row[0] not in const_struct:
+                # cons_name/src_table_name
+                const_struct[row[0]] = {}
+                const_struct[row[0]][row[1]] = {}
+                tab_con = data_types.TableConstraints(
+                    constraint_name=row[0],
+                    table_name=row[1],
+                    column_names=[row[2]],
+                    r_constraint_name=row[3],
+                    referenced_table=row[4],
+                    referenced_columns=[row[5]],
+                )
+                const_struct[row[0]][row[1]] = tab_con
+            else:
+                tab_con = const_struct[row[0]][row[1]]
+                tab_con.column_names.append(row[2])
+                tab_con.referenced_columns.append(row[5])
+        # data has been read from db and organized... now dump as a list
+        for table_ref in const_struct.values():
+            constraint_list.extend(table_ref.values())
+
         return constraint_list
 
     def get_triggers(self) -> list[str]:
@@ -680,7 +644,7 @@ class OracleDatabase(db_lib.DB):
 
     def disable_fk_constraints(
         self,
-        constraint_list: list[db_lib.TableConstraints],
+        constraint_list: list[data_types.TableConstraints],
     ) -> None:
         """
         Disable all foreign key constraints.
@@ -706,7 +670,7 @@ class OracleDatabase(db_lib.DB):
 
     def enable_constraints(
         self,
-        constraint_list: list[db_lib.TableConstraints],
+        constraint_list: list[data_types.TableConstraints],
         *,
         retries: int = 0,
         auto_delete: bool = False,
@@ -728,34 +692,31 @@ class OracleDatabase(db_lib.DB):
                 f"ALTER TABLE {self.schema_2_sync}.{cons.table_name} "
                 f"ENABLE CONSTRAINT {cons.constraint_name}"
             )
-            # try:
-            cursor.execute(query)
-            # except DatabaseError as e:
-            #     if retries > 20:
-            #         LOGGER.error(
-            #             "max retries reached for constraint %s",
-            #             cons.constraint_name,
-            #         )
-            #         raise e
-            #     LOGGER.debug("fixing constraints.. failed on %s", cons)
-            #     retries += 1
-            #     try:
-            #         self.disable_fk_constraints(constraint_list)
-            #     except:
-            #         LOGGER.error("error disabling constraints")
-            #         raise Exception("error disabling constraints")
-            #     self.delete_no_ri_data(cons)
-            #     LOGGER.debug("calling back to enable constraints...")
-            #     self.enable_constraints(constraint_list, retries=retries)
+            try:
+                cursor.execute(query)
+            except DatabaseError as e:
+                if retries > 20:
+                    LOGGER.error(
+                        "max retries reached for constraint %s",
+                        cons.constraint_name,
+                    )
+                    raise EnableConstraintsMaxRetriesError(retries, cons)
+                LOGGER.debug("fixing constraints.. failed on %s", cons)
+                retries += 1
+                self.disable_fk_constraints(constraint_list)
+                for cur_con in constraint_list:
+                    self.delete_no_ri_data(cons)
+                # LOGGER.debug("calling back to enable constraints...")
+                # self.enable_constraints(constraint_list, retries=retries)
 
         cursor.close()
 
-    def get_no_ri_data(self, constraint: db_lib.TableConstraints):
+    def get_no_ri_data(self, constraint: data_types.TableConstraints):
         """
         Get a records that violating RI integrity constraint.
 
         :param constraint: a constraint object
-        :type constraint: db_lib.TableConstraints
+        :type constraint: data_types.TableConstraints
         """
         #     constraint_name: str
         # table_name: str
@@ -777,31 +738,54 @@ class OracleDatabase(db_lib.DB):
         # WHERE
         # ( cb.CB_SKEY IS NULL AND cba.CB_SKEY IS NOT NULL ) OR
         # ( cb.CB_SKEY IS NOT NULL AND cba.CB_SKEY IS NULL );
-        column_name_str = constraint.column_names
-        ref_col_name_str = constraint.referenced_columns
+        column_name_str = f"T1.{constraint.column_names[0]}"
+        ref_col_name_str = f"T2.{constraint.referenced_columns[0]}"
+        join_clause = f"{column_name_str} = {ref_col_name_str}"
+        where_clause = (
+            f"({column_name_str} is not null and {ref_col_name_str} is null)"
+        )
         if (
             isinstance(constraint.column_names, list)
             and len(constraint.column_names) > 1
         ):
-            column_name_str = "|".join(constraint.column_names)
-        if (
-            isinstance(constraint.referenced_columns, list)
-            and len(constraint.referenced_columns) > 1
-        ):
-            ref_col_name_str = "|".join(constraint.referenced_columns)
+            col_list = []
+            ref_col_list = []
+            join_clause_list = []
+            where_clause_list = []
+            cnt = 1
+            for col in constraint.column_names:
+                col_list.append(f"T1.{col}")
+                ref_col = constraint.referenced_columns[cnt - 1]
+                ref_col_list.append(f"T2.{ref_col}")
+                join_clause_list.append(f"T1.{col} = T2.{ref_col}")
+                where_clause_list.append(
+                    f"T1.{col} is not null and T2.{ref_col} is null"
+                )
+                cnt += 1
+            column_name_str = ", ".join(col_list)
+            ref_col_name_str = ", ".join(ref_col_list)
+            join_clause = " AND ".join(join_clause_list)
+            where_clause = " AND ".join(where_clause_list)
+        # if (
+        #     isinstance(constraint.referenced_columns, list)
+        #     and len(constraint.referenced_columns) > 1
+        # ):
+        #     ref_col_name_str = " || ".join(
+        #         [f"T2.{col_nm}" for col_nm in constraint.referenced_columns],
+        #     )
         query = f"""
             SELECT
-                T1.{column_name_str} as C1
+                {column_name_str} as C1
             FROM
                 {constraint.table_name} T1
             FULL OUTER JOIN
                 {constraint.referenced_table} T2
             ON
-                T1.{column_name_str} = T2.{ref_col_name_str}
+                {join_clause}
             WHERE
-                ( T1.{column_name_str} is not null and
-                  T2.{ref_col_name_str} is null )
+                 {where_clause}
         """
+
         # OR ( T1.{column_name_str} is null and T2.{ref_col_name_str} is not null )
         LOGGER.debug("query: %s", query)
         cursor = self.connection.cursor()
@@ -809,12 +793,26 @@ class OracleDatabase(db_lib.DB):
         results = cursor.fetchall()
         cursor.close()
         # flatten the struct
-        records_to_delete = [rec[0] for rec in results]
-        LOGGER.debug("records_to_delete: %s...", records_to_delete[0:10])
-        LOGGER.debug("len of results: %s", len(results))
-        return records_to_delete
+        records_to_delete = list(
+            set([rec[0 : len(constraint.column_names)] for rec in results])
+        )
 
-    def delete_no_ri_data(self, constraint: db_lib.TableConstraints) -> None:
+        # get rid of any empty records
+        return_recs = []
+        for rec in records_to_delete:
+            rec = [val for val in rec if val]
+            return_recs.append(rec)
+        LOGGER.info(
+            "first 10 records_to_delete from %s: %s...",
+            constraint.table_name,
+            return_recs[0:10],
+        )
+        LOGGER.debug("total number of records to delete: %s", len(return_recs))
+        return return_recs
+
+    def delete_no_ri_data(
+        self, constraint: data_types.TableConstraints
+    ) -> None:
         """
         delete data that has referential interity constraint issues.
         """
@@ -825,29 +823,38 @@ class OracleDatabase(db_lib.DB):
             isinstance(constraint.column_names, list)
             and len(constraint.column_names) > 1
         ):
-            LOGGER.error("unsupported: fix for this constraint: %s", constraint)
-            msg = (
-                f"the constraint {constraint.constraint_name} uses more "
-                "than one column to define the referential integrity "
-                "this is a use case that is not currently supported"
-            )
-            # TODO: should really define my own error here
-            raise ValueError(msg)
+            LOGGER.debug("multicolumn fk to fix: %s", constraint)
 
         no_ri_data_all = self.get_no_ri_data(constraint)
         cursor = self.connection.cursor()
-        for i in range(0, len(no_ri_data_all), 10000):
-            no_ri_data = no_ri_data_all[i : i + 10000]
+        step_size = 20
+        query_param_list = []
+        for no_ri_data in no_ri_data_all:
+            col_cnt = 0
+            for data_to_delete in no_ri_data:
+                if not isinstance(no_ri_data[col_cnt], str):
+                    no_ri_str = no_ri_data[col_cnt]
+                else:
+                    no_ri_str = f"'{no_ri_data[col_cnt]}'"
 
-            if not isinstance(no_ri_data[0], str):
-                no_ri_str = ",".join([str(val) for val in no_ri_data])
-            else:
-                no_ri_str = ",".join([f"'{val}'" for val in no_ri_data])
-            query = f"DELETE FROM {constraint.table_name} where {constraint.column_names} in ({no_ri_str})"
-            LOGGER.debug("delete not ri records query: %s ...", query[0:200])
+                query_str = f"{constraint.column_names[col_cnt]} = {no_ri_str}"
+                query_param_list.append(query_str)
+                col_cnt += 1
 
+            where_clause = " AND ".join(query_param_list)
+
+            # no_ri_data = no_ri_data_all[i : i + step_size]
+
+            query = f"DELETE FROM {constraint.table_name} where {where_clause}"
+            LOGGER.info(
+                "records removed from %s/%s: %s",
+                constraint.table_name,
+                constraint.column_names,
+                no_ri_data,
+            )
             cursor.execute(query)
         cursor.close()
+        self.connection.commit()
 
     def fix_sequences(self) -> None:
         """
@@ -1374,7 +1381,6 @@ class OracleDatabase(db_lib.DB):
 
         writer = None
 
-        # chunk_size = 25000  # 25000  # number of rows to include in a chunk
         itercnt = 1
         for chunk in pd.read_sql(
             query,
@@ -1393,7 +1399,9 @@ class OracleDatabase(db_lib.DB):
                     len(chunk),
                 )
                 LOGGER.debug(
-                    "column name and types %s / %s", chunk.columns, chunk.dtypes
+                    "column name and types %s / %s",
+                    chunk.columns,
+                    chunk.dtypes,
                 )
                 table = self.df_to_gdf(chunk, spatial_col, pyarrow_schema)
                 # define the geoparquet metadata:
@@ -1405,7 +1413,7 @@ class OracleDatabase(db_lib.DB):
                             "encoding": "WKB",
                             "geometry_type": "Unknown",  # You can specify "Point", "Polygon", etc.
                             "crs": "EPSG:3005",  # Set CRS if applicable
-                        }
+                        },
                     },
                 }
 
@@ -2334,10 +2342,12 @@ class DataFrameExtended(pd.DataFrame):
                 )
                 LOGGER.debug("writing to oracle...")
                 # LOGGER.debug("first row: %s", data[0])
+                # TODO: circle back and fix to address ri issues
                 # try:
 
                 cursor.setinputsizes(*input_sizes)
                 cursor.executemany(cmd, data)
+                oradb.connection.commit()
                 # except:
                 #     oradb.truncate_table(table=table_name)
 
@@ -2348,7 +2358,7 @@ class DataFrameExtended(pd.DataFrame):
                 #             LOGGER.debug("bad row: %s", row)
                 #             raise e
 
-            LOGGER.debug("data has been entered!")
+            LOGGER.debug("data has been entered, and committed!")
 
     def convert_types(self, value: any) -> any:
         """
@@ -2516,10 +2526,20 @@ class Extractor:
     def extract(
         self,
         *,
-        overwrite: bool = False,  # noqa: ARG002
         chunk_size: int = 25000,
         max_records: int = 0,
     ) -> bool:
+        """
+        Extract the data from the database to a duckdb file.
+
+        :param overwrite: Doesn't do anything
+        :type overwrite: bool, optional
+        :param max_records: _description_, defaults to 0
+        :type max_records: int, optional
+        :raises ValueError: _description_
+        :return: _description_
+        :rtype: bool
+        """
         # identify if spatial data
         spatial_columns = self.oradb.get_sdo_geometry_columns(self.table_name)
         if len(spatial_columns) > 1:
@@ -2533,8 +2553,6 @@ class Extractor:
         query = self.generate_extract_sql_query()
 
         ddb_util = DuckDbUtil(self.export_file, self.table_name)
-        # handle the duck db init
-        # ddb_con = duckdb.connect(database=export_file)
         chunk_cnt = 0
         first = True
         df_cols = None
@@ -2556,14 +2574,11 @@ class Extractor:
                 chunk[spatial_col.lower()] = chunk[spatial_col.lower()].apply(
                     shapely.wkb.dumps,
                 )
-                # df_cols = chunk.columns
 
             if first:
-                # chunk.to_sql(table, ddb_con, if_exists="replace", index=False)
                 LOGGER.debug(
                     "creating the table, writing first chunk: %s", chunk_size
                 )
-                # ddb_util.create_and_write_chunk(chunk)
                 ddb_util.insert_chunk(chunk)
 
                 first = False
@@ -3179,8 +3194,19 @@ class DuckDbUtil:
         self.query_cols = query_cols
 
         query = f"SELECT {', '.join(self.query_cols)} FROM {self.table_name}"
+
+        filter_obj = self.get_filterobj_clause()
+        if filter_obj:
+            query = query + f" WHERE {filter_obj.ddb_where_clause}"
+
         LOGGER.debug("query: %s", query)
         return query
+
+    def get_filterobj_clause(self) -> None | data_types.DataFilter:
+        for filter_obj in constants.BIG_DATA_FILTERS:
+            if filter_obj.table_name.upper() == self.table_name.upper():
+                return filter_obj
+        return None
 
     def insert_chunk(
         self,
@@ -3338,3 +3364,15 @@ class DataClassification:
                     self.dc_struct[tab] = {}
                 if col not in self.dc_struct[tab]:
                     self.dc_struct[tab][col] = class_rec
+
+
+class EnableConstraintsMaxRetriesError(Exception):
+    def __init__(
+        self, retry_attempts: int, constraint: data_types.TableConstraints
+    ):
+        self.message = (
+            f"Retries have exceeded the {retry_attempts} max retries, error "
+            f"triggered by constraint: {constraint.constraint_name} which "
+            f"exists on the table: {constraint.table_name}"
+        )
+        super().__init__(self.message)

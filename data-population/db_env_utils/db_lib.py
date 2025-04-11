@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import constants
+import data_types
 import pandas as pd
 import psycopg2
 import psycopg2.sql
@@ -26,23 +27,6 @@ if TYPE_CHECKING:
 
 
 LOGGER = logging.getLogger(__name__)
-
-
-@dataclass
-class TableConstraints:
-    """
-    Data class for storing constraints.
-
-    Model / types for storing database constraints when queried from the
-    database.
-    """
-
-    constraint_name: str
-    table_name: str
-    column_names: list[str]
-    r_constraint_name: str
-    referenced_table: str
-    referenced_columns: list[str]
 
 
 @dataclass
@@ -215,7 +199,7 @@ class DB(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_fk_constraints(self) -> list[oradb_lib.TableConstraints]:
+    def get_fk_constraints(self) -> list[data_types.TableConstraints]:
         """
         Return the foreign key constraints for the schema.
 

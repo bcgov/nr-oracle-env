@@ -127,9 +127,11 @@ def main(dest, environment, purge, refreshdb) -> None:
             "refreshdb flag is not enabled... Only empty tables will be loaded"
         )
 
-    LOGGER.debug("purge: %s %s", purge, type(purge))
-    LOGGER.debug("refreshdb: %s, %s", refreshdb, type(refreshdb))
+    LOGGER.info("purge: %s %s", purge, type(purge))
+    LOGGER.info("refreshdb: %s, %s", refreshdb, type(refreshdb))
+    LOGGER.info("populating the local oracle db")
     common_util.run_injest(purge=purge, refreshdb=refreshdb)
+    LOGGER.info("Injest complete")
 
 
 if __name__ == "__main__":

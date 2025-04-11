@@ -4,6 +4,7 @@ import pathlib
 import re
 
 import constants
+import data_types
 import env_config
 import geopandas
 import oracledb
@@ -598,3 +599,38 @@ def test_debug_data_insert(db_connection_fixture):
     stmt = "INSERT INTO FOREST_CLIENT (CLIENT_NUMBER, CLIENT_NAME, LEGAL_FIRST_NAME, LEGAL_MIDDLE_NAME, CLIENT_STATUS_CODE, CLIENT_TYPE_CODE, BIRTHDATE, CLIENT_ID_TYPE_CODE, CLIENT_IDENTIFICATION, REGISTRY_COMPANY_TYPE_CODE, CORP_REGN_NMBR, CLIENT_ACRONYM, WCB_FIRM_NUMBER, OCG_SUPPLIER_NMBR, CLIENT_COMMENT, ADD_TIMESTAMP, ADD_USERID, ADD_ORG_UNIT, UPDATE_TIMESTAMP, UPDATE_USERID, UPDATE_ORG_UNIT, REVISION_COUNT) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14, :15, :16, :17, :18, :19, :20, :21, :22)"
     # date_time_between_dates
     cur.executemany(stmt, data)
+
+
+def test_get_constraints(db_connection_fixture):
+    ora = db_connection_fixture
+    cons = ora.get_fk_constraints()
+    for con in cons:
+        if len(con.referenced_columns) > 1:
+            LOGGER.debug("con: %s", con)
+            break
+    LOGGER.debug("num cons: %s", len(cons))
+    ora.enable_constraints(cons)
+
+
+def test_fix_data(db_connection_fixture):
+    ora = db_connection_fixture
+    ora.get_connection()
+    cons = ora.get_fk_constraints()
+    for con in cons:
+        # if len(con.column_names) > 1:
+        LOGGER.debug("con: %s", con)
+        data = ora.get_no_ri_data(con)
+        LOGGER.debug("data to delete: %s", data)
+
+    cur_con = data_types.TableConstraints(
+        constraint_name="FCLR_FC3_FK",
+        table_name="FOREST_COVER_LAYER",
+        column_names=["FOREST_COVER_ID"],
+        r_constraint_name="FC3_PK",
+        referenced_table="FOREST_COVER",
+        referenced_columns=["FOREST_COVER_ID"],
+    )
+    data = ora.get_no_ri_data(cur_con)
+    LOGGER.debug("data to delete: %s", data)
+    # ora.delete_no_ri_data
+    # constants.

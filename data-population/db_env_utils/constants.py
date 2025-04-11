@@ -206,7 +206,8 @@ DATA_TO_MASK = [
         schema="THE",
         column_name="BIRTHDATE",
         faker_method=lambda: fake.date_time_between_dates(
-            datetime_start="-99y", datetime_end="-20y"
+            datetime_start="-99y",
+            datetime_end="-20y",
         ).strftime("%Y-%m-%d 00:00:00"),
         percent_null=80,
     ),
@@ -218,14 +219,14 @@ DATA_TO_MASK = [
         percent_null=80,
     ),
     # data_types.DataToMask(
-    #     table_name="FOREST_CLIENT",
-    #     schema="THE",
-    #     column_name="CLIENT_ID_TYPE_CODE",
-    #     faker_method=lambda: fake.word(
-    #         ext_word_list=["SIN", "BCDL", "ABDL", "PSPT"]
-    #     ),
-    #     percent_null=85,
-    # ),
+    #     table_name="FOREST_CLIENT",  # noqa: ERA001
+    #     schema="THE",  # noqa: ERA001
+    #     column_name="CLIENT_ID_TYPE_CODE",  # noqa: ERA001
+    #     faker_method=lambda: fake.word(  # noqa: ERA001
+    #         ext_word_list=["SIN", "BCDL", "ABDL", "PSPT"]  # noqa: ERA001
+    #     ),  # noqa: ERA001
+    #     percent_null=85,  # noqa: ERA001
+    # ),  # noqa: ERA001
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -246,7 +247,9 @@ DATA_TO_MASK = [
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CORP_REGN_NMBR",
-        faker_method=lambda: str(random.randrange(1000, 10000)),
+        faker_method=lambda: str(
+            random.randrange(1000, 10000),  # noqa: S311
+        ),
         percent_null=60,
     ),
     data_types.DataToMask(
@@ -254,7 +257,7 @@ DATA_TO_MASK = [
         schema="THE",
         column_name="CLIENT_ACRONYM",
         faker_method=lambda: "".join(
-            random.choices(string.ascii_letters, k=8)
+            random.choices(string.ascii_letters, k=8),  # noqa: S311
         ).upper(),
         percent_null=80,
     ),
@@ -262,14 +265,18 @@ DATA_TO_MASK = [
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="WCB_FIRM_NUMBER",
-        faker_method=lambda: str(random.randrange(1000, 100000)),
+        faker_method=lambda: str(
+            random.randrange(1000, 100000),  # noqa: S311
+        ),
         percent_null=90,
     ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="OCG_SUPPLIER_NMBR",
-        faker_method=lambda: str(random.randrange(1000, 100000000)),
+        faker_method=lambda: str(
+            random.randrange(1000, 100000000),  # noqa: S311
+        ),
         percent_null=95,
     ),
     data_types.DataToMask(
@@ -289,7 +296,7 @@ DATA_TO_MASK = [
 ]
 
 
-class ORACLE_TYPES(Enum):
+class ORACLE_TYPES(Enum):  # noqa: N801
     """
     Define the database types that are supported.
 
@@ -316,17 +323,17 @@ OracleMaskValuesMap = {
     ORACLE_TYPES.VARCHAR2: "'1'",
     ORACLE_TYPES.DATE: f"'{
         datetime.datetime.strptime('0001-01-01 01:01:01', '%Y-%m-%d %H:%M:%S')
-    }'",
+    }'",  # noqa: DTZ007
     ORACLE_TYPES.NUMBER: 1,
     ORACLE_TYPES.CHAR: "'1'",
     ORACLE_TYPES.TIMESTAMP: f"'{
         datetime.datetime.strptime('0001-01-01 01:01:01', '%Y-%m-%d %H:%M:%S')
-    }'",
+    }'",  # noqa: DTZ007
     ORACLE_TYPES.LONG: "'1'",
 }
 
 
-class DUCK_DB_TYPES(Enum):
+class DUCK_DB_TYPES(Enum):  # noqa: N801
     """
     Define the duckdb database types that are supported.
 
@@ -364,7 +371,7 @@ ORACLE_TYPES_DEFAULT_FAKER = {
     ORACLE_TYPES.DATE: lambda: fake.date_time_this_century().strftime(
         "%Y-%m-%d 00:00:00"
     ),
-    ORACLE_TYPES.NUMBER: lambda: random.randint(0, 100000),
+    ORACLE_TYPES.NUMBER: lambda: random.randint(0, 100000),  # noqa: S311
     ORACLE_TYPES.CHAR: lambda: fake.word(),
     ORACLE_TYPES.TIMESTAMP: lambda: fake.date_time_this_century().strftime(
         "%Y-%m-%d 00:00:00"
@@ -372,7 +379,21 @@ ORACLE_TYPES_DEFAULT_FAKER = {
     ORACLE_TYPES.LONG: lambda: fake.word(),
 }
 
-# TODO: circle back and make the functions a callable
-# example: stored_function = lambda: ''.join(random.choices(string.ascii_letters, k=4)).upper()
-# print(ORACLE_TYPES_DEFAULT_FAKER[ORACLE_TYPES.LONG]())
-# print(ORACLE_TYPES_DEFAULT_FAKER[ORACLE_TYPES.LONG]())
+# data import config
+#  Some tables are really big and we do not need to load all the data.
+#  The following are extra where clauses that get applied when the
+# data is extracted and loaded
+BIG_DATA_FILTERS = [
+    data_types.DataFilter(
+        table_name="RESULTS_AUDIT_DETAIL",
+        schema="THE",
+        ora_where_clause="ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')",
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="RESULTS_AUDIT_EVENT",
+        schema="THE",
+        ora_where_clause="ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')",
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+]

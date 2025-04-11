@@ -121,6 +121,7 @@ def main(source, environment, refresh, table):
 
     LOGGER.debug("refresh: %s %s", refresh, type(refresh))
     common_util.run_extract(refresh=refresh, table=table)
+    LOGGER.debug("Finished running extract")
 
 
 if __name__ == "__main__":
