@@ -237,7 +237,7 @@ class Utility:
                 sock.settimeout(2)
                 sock.connect(("localhost", local_port))
                 sock_success = True
-            except OSError:  # noqa: PERF203
+            except OSError:
                 LOGGER.exception("port forward not available...")
                 time.sleep(1)
                 retry += 1
@@ -320,7 +320,8 @@ class Utility:
             msg = (
                 "searching for secrets that match the pattern "
                 f"{db_filter_string} returned more than one pod, narrow the "
-                "search pattern so only one pod is returned."
+                "search pattern so only one pod is returned.  Secrets found "
+                f"include: {secret_names}"
             )
             LOGGER.exception(msg)
             raise IndexError(msg)
@@ -342,7 +343,7 @@ class Utility:
         ).decode("utf-8")
         return db_conn_params
 
-    def run_extract(self, *, refresh: bool, table: str | None) -> None:
+    def run_extract(self, *, refresh: bool, single_table: str | None) -> None:
         """
         Run the extract process.
         """
@@ -352,8 +353,8 @@ class Utility:
         self.make_dirs()
 
         # gets the table list from database
-        if table is not None:
-            tables_to_export = [table]
+        if single_table is not None:
+            tables_to_export = [single_table]
         else:
             tables_to_export = self.get_tables_for_extract()
         LOGGER.debug("tables to export: %s", tables_to_export)
@@ -382,11 +383,11 @@ class Utility:
         for table in tables_to_export:
             LOGGER.info("Exporting table %s", table)
             # skip the forest cover geometry table, for now
-            # tables_2_skip = ["TIMBER_MARK", "HARVESTING_AUTHORITY"]
-            # tables_2_skip = [
-            #     "FOREST_COVER_GEOMETRY",
-            #     "STOCKING_STANDARD_GEOMETRY",
-            # ]
+            # commonly skipped tables:
+            # FOREST_COVER_GEOMETRY
+            # STOCKING_STANDARD_GEOMETRY
+            # TIMBER_MARK
+            # HARVESTING_AUTHORITY
             tables_2_skip = []
             # leeaving
             if table.upper() in tables_2_skip:

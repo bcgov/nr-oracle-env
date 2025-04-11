@@ -1,3 +1,7 @@
+"""
+Module to define data types used in the data population process.
+"""
+
 from dataclasses import dataclass
 
 
@@ -24,6 +28,15 @@ class DataToMask:
 
 @dataclass
 class DataFilter:
+    """
+    Structure used to store the filter information.
+
+    When loading data either from oracle to duckdb or vise versa, this data
+    structure is used to store the filter information.  In a nutshell it
+    stores the where clause to prevent unnecessary data from being loaded /
+    extracted.
+    """
+
     table_name: str
     schema: str
     ora_where_clause: str

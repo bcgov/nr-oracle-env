@@ -369,12 +369,12 @@ ORACLE_TYPES_TO_DDB_TYPES = {
 ORACLE_TYPES_DEFAULT_FAKER = {
     ORACLE_TYPES.VARCHAR2: lambda: fake.word(),
     ORACLE_TYPES.DATE: lambda: fake.date_time_this_century().strftime(
-        "%Y-%m-%d 00:00:00"
+        "%Y-%m-%d 00:00:00",
     ),
     ORACLE_TYPES.NUMBER: lambda: random.randint(0, 100000),  # noqa: S311
     ORACLE_TYPES.CHAR: lambda: fake.word(),
     ORACLE_TYPES.TIMESTAMP: lambda: fake.date_time_this_century().strftime(
-        "%Y-%m-%d 00:00:00"
+        "%Y-%m-%d 00:00:00",
     ),
     ORACLE_TYPES.LONG: lambda: fake.word(),
 }
@@ -387,13 +387,17 @@ BIG_DATA_FILTERS = [
     data_types.DataFilter(
         table_name="RESULTS_AUDIT_DETAIL",
         schema="THE",
-        ora_where_clause="ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
         ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
     ),
     data_types.DataFilter(
         table_name="RESULTS_AUDIT_EVENT",
         schema="THE",
-        ora_where_clause="ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
         ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
     ),
 ]

@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     import geopandas as gpd
 
 LOGGER = logging.getLogger(__name__)
+MAX_RETRIES = 20
 
 
 class OracleDatabase(db_lib.DB):
@@ -285,106 +286,6 @@ class OracleDatabase(db_lib.DB):
         )
         return importer.import_data()
 
-        # def load_data_old_delete_once_working(
-        #     self,
-        #     table: str,
-        #     import_file: pathlib.Path,
-        #     *,
-        #     refreshdb: bool = False,
-        # ) -> None:
-        #     """
-        #     Load the data from the file into the table.
-
-        #     Override the default db_lib method.  Identify if the source parquet
-        #     file is geoparquet.  If so then use custom load logic that accomodates
-        #     the spatial column handling.  Otherwise just pass through to the
-        #     parent method.
-
-        #     :param table: the table to load the data into
-        #     :type table: str
-        #     :param import_file: the file to read the data from
-        #     :type import_file: str
-        #     :param refreshdb: if True, delete the data from the table before loading.
-        #     :type refreshdb: bool
-        #     """
-        #     self.get_connection()
-        #     if refreshdb:
-        #         self.truncate_table(table=table)
-        #     dest_tab_rows = self.get_row_count(table)
-        #     LOGGER.debug("table: %s has %s rows", table, dest_tab_rows)
-
-        # only load data if its a zero row count.
-        # if not dest_tab_rows:
-        #     if self.is_geoparquet(import_file):
-        #         LOGGER.info("geoparquet table: %s", table)
-        #         LOGGER.info("forking to use the SDO_GEOMETRY loader")
-        #         self.load_data_geoparquet(
-        #             table=table,
-        #             import_file=import_file,
-        #         )
-        #     elif self.has_raw_columns(table) or self.has_blob(table):
-        #         self.load_data_with_raw_blobby(
-        #             table=table,
-        #             import_file=import_file,
-        #         )
-        #     else:
-        #         LOGGER.debug(
-        #             "regular parquet file... passing to super class method",
-        #         )
-        #         super().load_data(
-        #             table,
-        #             import_file,
-        #             refreshdb=refreshdb,
-        #         )
-
-    # def load_data_delete(
-    #     self,
-    #     table: str,
-    #     import_file: str,
-    #     *,
-    #     purge: bool = False,
-    # ) -> None:
-    #     """
-    #     Load the data from the file into the table.
-
-    #     :param table: the table to load the data into
-    #     :type table: str
-    #     :param import_file: the file to read the data from
-    #     :type import_file: str
-    #     :param purge: if True, delete the data from the table before loading.
-    #     :type purge: bool
-    #     """
-    #     # debugging to view the data before it gets loaded
-    #     pandas_df = pd.read_parquet(import_file)
-    #     self.get_connection()  # make sure there is an oracle connection
-
-    #     LOGGER.debug("loading data for table: %s", table)
-
-    #     self.get_sqlalchemy_engine()
-    #     if purge:
-    #         self.truncate_table(table=table.lower())
-    #     with (
-    #         self.sql_alchemy_engine.connect() as connection,
-    #         connection.begin(),
-    #     ):
-    #         pandas_df.to_sql(
-    #             table.lower(),
-    #             con=connection,
-    #             schema="THE",
-    #             if_exists="append",
-    #             index=False,
-    #         )
-    #         # now verify data
-    #     sql = "Select count(*) from {schema}.{table}"
-    #     cur = self.connection.cursor()
-    #     cur.execute(sql.format(schema=self.schema_2_sync, table=table))
-    #     result = cur.fetchall()
-    #     rows_loaded = result[0][0]
-    #     if not rows_loaded:
-    #         LOGGER.error("no rows loaded to table %s", table)
-    #     LOGGER.debug("rows loaded to table %s are:  %s", table, rows_loaded)
-    #     cur.close()
-
     def load_data_retry(
         self,
         table_list: list[str],
@@ -566,7 +467,7 @@ class OracleDatabase(db_lib.DB):
                     JOIN all_cons_columns arcc ON
                         arc.constraint_name = arcc.constraint_name
                         AND ac.table_name = acc.table_name
-					    AND acc.column_name = arcc.column_name
+                        AND acc.column_name = arcc.column_name
                 WHERE
                     ac.constraint_type = 'R'
                     AND ac.owner = :schema
@@ -582,16 +483,9 @@ class OracleDatabase(db_lib.DB):
         # need to load to a struct so can identify multiple records
         # per table
         # struct will be:
-        #   constraint_name
-        #       src_table
-        #           data_types.TableConstraints
-
-        # constraint_name: str
-        # table_name: str
-        # column_names: list[str]
-        # r_constraint_name: str
-        # referenced_table: str
-        # referenced_columns: list[str]
+        #   - constraint_name
+        #       - src_table
+        #           - data_types.TableConstraints
 
         const_struct = {}
         for row in cursor:
@@ -659,7 +553,6 @@ class OracleDatabase(db_lib.DB):
         cursor = self.connection.cursor()
         LOGGER.info("disabling constraints...")
         for cons in constraint_list:
-            # LOGGER.debug("disabling constraint %s", cons.constraint_name)
             query = (
                 f"ALTER TABLE {self.schema_2_sync}.{cons.table_name} "
                 f"DISABLE CONSTRAINT {cons.constraint_name}"
@@ -673,7 +566,7 @@ class OracleDatabase(db_lib.DB):
         constraint_list: list[data_types.TableConstraints],
         *,
         retries: int = 0,
-        auto_delete: bool = False,
+        auto_delete: bool = False,  # noqa: ARG002
     ) -> None:
         """
         Enable all foreign key constraints.
@@ -687,57 +580,45 @@ class OracleDatabase(db_lib.DB):
         cursor = self.connection.cursor()
         LOGGER.info("enabling constraints...")
         for cons in constraint_list:
-            # LOGGER.info("enabling constraint %s", cons.constraint_name)
             query = (
                 f"ALTER TABLE {self.schema_2_sync}.{cons.table_name} "
                 f"ENABLE CONSTRAINT {cons.constraint_name}"
             )
             try:
                 cursor.execute(query)
-            except DatabaseError as e:
-                if retries > 20:
-                    LOGGER.error(
-                        "max retries reached for constraint %s",
+            except DatabaseError:
+                if retries > MAX_RETRIES:
+                    LOGGER.exception(
+                        "max retries reached for constraint %s.",
                         cons.constraint_name,
                     )
-                    raise EnableConstraintsMaxRetriesError(retries, cons)
+                    raise EnableConstraintsMaxRetriesError(
+                        retries,
+                        cons,
+                    ) from None
+                LOGGER.warning(
+                    "error encountered enabling constraint %s",
+                    cons.constraint_name,
+                )
                 LOGGER.debug("fixing constraints.. failed on %s", cons)
                 retries += 1
                 self.disable_fk_constraints(constraint_list)
                 for cur_con in constraint_list:
-                    self.delete_no_ri_data(cons)
-                # LOGGER.debug("calling back to enable constraints...")
-                # self.enable_constraints(constraint_list, retries=retries)
+                    self.delete_no_ri_data(cur_con)
+                self.enable_constraints(constraint_list, retries=retries)
 
         cursor.close()
 
-    def get_no_ri_data(self, constraint: data_types.TableConstraints):
+    def get_no_ri_data(
+        self,
+        constraint: data_types.TableConstraints,
+    ) -> list[str | int]:
         """
         Get a records that violating RI integrity constraint.
 
         :param constraint: a constraint object
         :type constraint: data_types.TableConstraints
         """
-        #     constraint_name: str
-        # table_name: str
-        # column_names: list[str]
-        # r_constraint_name: str
-        # referenced_table: str
-        # referenced_columns: list[str]
-
-        # SELECT
-        # cba.CB_SKEY AS cba,
-        # cb.CB_SKEY AS cb,
-        # cba.OPENING_ID
-        # FROM
-        # CUT_BLOCK_OPEN_ADMIN cba
-        # FULL OUTER JOIN
-        # CUT_BLOCK cb
-        # ON
-        # cb.CB_SKEY = cba.CB_SKEY
-        # WHERE
-        # ( cb.CB_SKEY IS NULL AND cba.CB_SKEY IS NOT NULL ) OR
-        # ( cb.CB_SKEY IS NOT NULL AND cba.CB_SKEY IS NULL );
         column_name_str = f"T1.{constraint.column_names[0]}"
         ref_col_name_str = f"T2.{constraint.referenced_columns[0]}"
         join_clause = f"{column_name_str} = {ref_col_name_str}"
@@ -759,20 +640,13 @@ class OracleDatabase(db_lib.DB):
                 ref_col_list.append(f"T2.{ref_col}")
                 join_clause_list.append(f"T1.{col} = T2.{ref_col}")
                 where_clause_list.append(
-                    f"T1.{col} is not null and T2.{ref_col} is null"
+                    f"T1.{col} is not null and T2.{ref_col} is null",
                 )
                 cnt += 1
             column_name_str = ", ".join(col_list)
             ref_col_name_str = ", ".join(ref_col_list)
             join_clause = " AND ".join(join_clause_list)
             where_clause = " AND ".join(where_clause_list)
-        # if (
-        #     isinstance(constraint.referenced_columns, list)
-        #     and len(constraint.referenced_columns) > 1
-        # ):
-        #     ref_col_name_str = " || ".join(
-        #         [f"T2.{col_nm}" for col_nm in constraint.referenced_columns],
-        #     )
         query = f"""
             SELECT
                 {column_name_str} as C1
@@ -784,24 +658,26 @@ class OracleDatabase(db_lib.DB):
                 {join_clause}
             WHERE
                  {where_clause}
-        """
+        """  # noqa: S608
 
-        # OR ( T1.{column_name_str} is null and T2.{ref_col_name_str} is not null )
         LOGGER.debug("query: %s", query)
         cursor = self.connection.cursor()
         cursor.execute(query)
         results = cursor.fetchall()
         cursor.close()
-        # flatten the struct
+        # data comes from a database and therefor if only one column will
+        # show as [['data',]]  the trailing comma makes this list have 2
+        # elements when in fact it only has one... the list comp takes care of
+        # that.
         records_to_delete = list(
-            set([rec[0 : len(constraint.column_names)] for rec in results])
+            set([rec[0 : len(constraint.column_names)] for rec in results])  # noqa: C403
         )
 
         # get rid of any empty records
         return_recs = []
         for rec in records_to_delete:
-            rec = [val for val in rec if val]
-            return_recs.append(rec)
+            rec_no_nulls = [val for val in rec if val]
+            return_recs.append(rec_no_nulls)
         LOGGER.info(
             "first 10 records_to_delete from %s: %s...",
             constraint.table_name,
@@ -811,13 +687,20 @@ class OracleDatabase(db_lib.DB):
         return return_recs
 
     def delete_no_ri_data(
-        self, constraint: data_types.TableConstraints
+        self,
+        constraint: data_types.TableConstraints,
     ) -> None:
         """
-        delete data that has referential interity constraint issues.
+        Delete data that has referential interity constraint issues.
+
+        :param constraint: input constraint to find violating records for.
+        :type constraint: data_types.TableConstraints
+
         """
+
         LOGGER.debug(
-            "trying to fix data associated with constraint: %s", constraint
+            "trying to fix data associated with constraint: %s",
+            constraint,
         )
         if (
             isinstance(constraint.column_names, list)
@@ -827,11 +710,10 @@ class OracleDatabase(db_lib.DB):
 
         no_ri_data_all = self.get_no_ri_data(constraint)
         cursor = self.connection.cursor()
-        step_size = 20
         query_param_list = []
         for no_ri_data in no_ri_data_all:
             col_cnt = 0
-            for data_to_delete in no_ri_data:
+            for col_cnt in range(len(no_ri_data)):
                 if not isinstance(no_ri_data[col_cnt], str):
                     no_ri_str = no_ri_data[col_cnt]
                 else:
@@ -839,13 +721,10 @@ class OracleDatabase(db_lib.DB):
 
                 query_str = f"{constraint.column_names[col_cnt]} = {no_ri_str}"
                 query_param_list.append(query_str)
-                col_cnt += 1
 
             where_clause = " AND ".join(query_param_list)
 
-            # no_ri_data = no_ri_data_all[i : i + step_size]
-
-            query = f"DELETE FROM {constraint.table_name} where {where_clause}"
+            query = f"DELETE FROM {constraint.table_name} where {where_clause}"  # noqa: S608
             LOGGER.info(
                 "records removed from %s/%s: %s",
                 constraint.table_name,
@@ -1014,6 +893,7 @@ class OracleDatabase(db_lib.DB):
     def get_column_list(
         self,
         table: str,
+        *,
         with_type: bool = False,
         with_length_precision_scale: bool = False,
     ) -> list[str | tuple[str | int]]:
@@ -1050,9 +930,6 @@ class OracleDatabase(db_lib.DB):
         ORDER BY
             SEGMENT_COLUMN_ID
         """
-        # LOGGER.debug("query: %s", query)
-        # LOGGER.debug("table: %s", table.upper())
-        # LOGGER.debug("schema: %s", self.schema_2_sync.upper())
         cursor.execute(
             query,
             table_name=table.upper(),
@@ -1207,8 +1084,24 @@ class OracleDatabase(db_lib.DB):
     def get_pyarrow_schema_from_db(
         self,
         description: oracledb.Cursor.description,
-        spatial_column_name: str = None,
-    ):
+        spatial_column_name: str | None = None,
+    ) -> pyarrow.Schema:
+        """
+        Translate the database column types to pyarrow types.
+
+        Used to convert the database column types to pyarrow types, to allow
+        the generation of a parquet file that serves the same purpose as a
+        database table object.
+
+        :param description: database cursor description object.
+        :type description: oracledb.Cursor.description
+        :param spatial_column_name:if there is a spatial column it is inlcuded
+            here, defaults to None
+        :type spatial_column_name: str, optional
+        :raises KeyError: _description_
+        :return: a pyarrow schema that can be used to create a parquet file.
+        :rtype: pyarrow.Schema
+        """
         # constants.PYTHON_PYARROW_TYPE_MAP
         LOGGER.debug("description: %s", description)
         schema_map = []
@@ -1227,237 +1120,13 @@ class OracleDatabase(db_lib.DB):
             ].lower() == spatial_column_name.lower():
                 # make the type binary as it will be converted from WKT to WKB
                 pyarrow_type = pyarrow.binary()
-            # if column_obj[0].lower() == spatial_column_name.lower():
-            #     # trying to debug by taking spatial oout
-            #     pass
-            # else:
             schema_map.append(
                 [
                     column_obj[0].lower(),
                     pyarrow_type,
-                ]
+                ],
             )
-
-        schema = pyarrow.schema([(col[0], col[1]) for col in schema_map])
-        return schema
-
-    def extract_data_sdogeometry_ddb(
-        self,
-        table: str,
-        export_file: pathlib.Path,
-        *,
-        overwrite: bool = False,  # noqa: ARG002
-        chunk_size: int = 25000,
-        max_records: int = 0,
-    ):
-        self.get_sqlalchemy_engine()
-        self.get_connection()
-        spatial_columns = self.get_sdo_geometry_columns(table)
-
-        if len(spatial_columns) > 1:
-            msg = "only one spatial column is supported"
-            raise ValueError(msg)
-        spatial_col = spatial_columns[0]
-        query = self.generate_sdo_query(table)
-        LOGGER.debug("spatial query: %s", query)
-
-        temp_ddb_db = self.app_paths.get_temp_duckdb_path()
-        if temp_ddb_db.exists():
-            temp_ddb_db.unlink()
-
-        ddb_con = duckdb.connect(database=temp_ddb_db)
-        ddb_con.install_extension("spatial")
-        ddb_con.load_extension("spatial")
-        ddb_con.execute(f"SET memory_limit='{constants.DUCK_DB_MEM_LIM}'")
-        itercnt = 0
-        first = True
-        df_cols = None
-        for chunk in pd.read_sql(
-            query,
-            self.sql_alchemy_engine,
-            chunksize=chunk_size,
-        ):
-            chunk[spatial_col.lower()] = chunk[spatial_col.lower()].apply(
-                shapely.wkt.loads
-            )
-            chunk[spatial_col.lower()] = chunk[spatial_col.lower()].apply(
-                shapely.wkb.dumps
-            )
-            df_cols = chunk.columns
-
-            if first:
-                # chunk.to_sql(table, ddb_con, if_exists="replace", index=False)
-                LOGGER.debug(
-                    "creating the table, writing first chunk: %s", chunk_size
-                )
-                ddb_con.sql("CREATE TABLE my_table AS SELECT * FROM chunk")
-                first = False
-            else:
-                # chunk.to_sql(table, ddb_con, if_exists="append", index=False)
-                # insert into the table "my_table" from the DataFrame "my_df"
-                LOGGER.debug(
-                    "writing chunk to the table (chunk/chunk_size), (%s/%s)",
-                    itercnt + 1,
-                    (itercnt + 1) * chunk_size,
-                )
-                ddb_con.sql("INSERT INTO my_table SELECT * FROM chunk")
-            if (max_records) and itercnt * chunk_size > max_records:
-                break
-            itercnt += 1
-
-        # now write to geoparquet
-        LOGGER.debug("write to parquet...")
-        fix_cols = []
-        for col in df_cols:
-            if col.lower() == spatial_col.lower():
-                fix_cols.append(
-                    f"ST_GeomFromWKB({spatial_col}) AS {spatial_col}"
-                )
-            else:
-                fix_cols.append(col)
-        ddb_2_parquet_query_str = f"""
-            COPY (select {", ".join(fix_cols)} FROM my_table)
-            TO '{export_file}' (FORMAT PARQUET);
-        """
-        LOGGER.debug(ddb_2_parquet_query_str)
-        LOGGER.info("writing to parquet file: %s", export_file)
-        ddb_con.sql(ddb_2_parquet_query_str)
-        LOGGER.debug("file has been extracted!")
-        ddb_con.close()
-        if export_file.exists() and temp_ddb_db.exists():
-            LOGGER.debug("remove the temporary duck db file: %s", temp_ddb_db)
-        return True
-
-    def extract_data_sdogeometry_parquet(
-        self,
-        table: str,
-        export_file: pathlib.Path,
-        *,
-        overwrite: bool = False,  # noqa: ARG002
-        chunk_size: int = 25000,
-        max_records: int = 0,
-    ) -> bool:
-        """
-        Extract data from a table that contains SDO_GEOMETRY columns.
-
-        :param table: table who's data should be extracted
-        :type table: str
-        :param export_file: the file that the data will be written to (need to
-            be a parquet file)
-        :type export_file: pathlib.Path
-        :param overwrite: if the file already exists what to do
-        :type overwrite: bool, optional
-        :param chunk_size: number of records to read from database at a time.
-        :type chunk_size: int, optional
-        :param max_records: if set defines the maximum number of records to read.
-            will be the chunk_size * x > max_records
-        :type max_records: int, optional
-        :return: was the file successfully created
-        :rtype: bool
-        """
-        self.get_sqlalchemy_engine()
-        self.get_connection()
-
-        column_list = self.get_column_list(table)
-        LOGGER.debug("column list: %s", column_list)
-
-        spatial_columns = self.get_sdo_geometry_columns(table)
-        if len(spatial_columns) > 1:
-            msg = "only one spatial column is supported"
-            raise ValueError(msg)
-        spatial_col = spatial_columns[0]
-
-        query = self.generate_sdo_query(table)
-        LOGGER.debug("spatial query: %s", query)
-
-        # need to get the types
-        cur = self.connection.cursor()
-        cur.execute(query)
-        pyarrow_schema = self.get_pyarrow_schema_from_db(
-            description=cur.description, spatial_column_name=spatial_col
-        )
-        cur.close()
-        LOGGER.debug("pyarrow schema: %s", pyarrow_schema)
-
-        writer = None
-
-        itercnt = 1
-        for chunk in pd.read_sql(
-            query,
-            self.sql_alchemy_engine,
-            chunksize=chunk_size,
-        ):
-            if chunk.empty:
-                itercnt += 1
-                LOGGER.debug("empty dataframe... itercnt: %s", itercnt)
-                continue
-            if itercnt == 1:
-                # after first chunk is read, convert it to a pyarrow table and
-                # use that as the schema for the stream writer.
-                LOGGER.debug(
-                    "first chunk has been read, rows: %s",
-                    len(chunk),
-                )
-                LOGGER.debug(
-                    "column name and types %s / %s",
-                    chunk.columns,
-                    chunk.dtypes,
-                )
-                table = self.df_to_gdf(chunk, spatial_col, pyarrow_schema)
-                # define the geoparquet metadata:
-                geo_metadata = {
-                    "version": "1.0.0",
-                    "primary_column": spatial_col.lower(),
-                    "columns": {
-                        spatial_col.lower(): {
-                            "encoding": "WKB",
-                            "geometry_type": "Unknown",  # You can specify "Point", "Polygon", etc.
-                            "crs": "EPSG:3005",  # Set CRS if applicable
-                        },
-                    },
-                }
-
-                # 🔹 Attach metadata to schema (only once, at creation)
-                metadata = (
-                    pyarrow_schema.metadata or {}
-                )  # Get existing metadata if any
-                metadata[b"geo"] = json.dumps(geo_metadata).encode(
-                    "utf-8"
-                )  # Store as bytes
-                pyarrow_schema = pyarrow_schema.with_metadata(
-                    metadata
-                )  # Update schema with metadata
-                LOGGER.debug("pyarrow schema: %s", pyarrow_schema)
-
-                writer = pyarrow.parquet.ParquetWriter(
-                    str(export_file),
-                    pyarrow_schema,
-                    compression="snappy",
-                )
-                itercnt += 1
-                writer.write_table(table)
-                LOGGER.debug(
-                    "records read (max recs): %s (%s)",
-                    itercnt * chunk_size,
-                    max_records,
-                )
-
-            LOGGER.debug(
-                "read chunk:%s chunks read: %s",
-                chunk_size,
-                chunk_size * itercnt,
-            )
-            table = self.df_to_gdf(chunk, spatial_col, pyarrow_schema)
-            LOGGER.debug("    writing chunk to parquet file...")
-            writer.write_table(table)
-
-            if (max_records) and itercnt * chunk_size > max_records:
-                break
-            itercnt += 1
-            continue
-        LOGGER.debug("closing the file")
-        writer.close()
-        return True
+        return pyarrow.schema([(col[0], col[1]) for col in schema_map])
 
     def extract_data_blob(
         self,
@@ -1465,8 +1134,8 @@ class OracleDatabase(db_lib.DB):
         export_file: pathlib.Path,
         *,
         overwrite: bool = False,  # noqa: ARG002
-        chunk_size=25000,
-        max_records=0,
+        chunk_size: int = 25000,
+        max_records: int = 0,
     ) -> bool:
         """
         Write table with BLOB data to parquet file.
@@ -1548,31 +1217,15 @@ class OracleDatabase(db_lib.DB):
             f"owner = '{self.schema_2_sync}' AND TABLE_NAME = '{table}'"
         )
         cur = self.connection.cursor()
-        cur.execute(cur)
+        cur.execute(query)
         results = cur.fetchall()
         return [row[0] for row in results]
 
-    # def has_masked_data(self, table: str) -> bool:
-    #     """
-    #     Identify if the table has any columns of type RAW.
-
-    #     :param table: input table name
-    #     :type table: str
-    #     :return: boolean that indicates if the table has any RAW defined
-    #              columns
-    #     :rtype: bool
-    #     """
-    #     mask_table = [
-    #         mask_descriptor.table_name.upper()
-    #         for mask_descriptor in constants.DATA_TO_MASK
-    #         if mask_descriptor.table_name.upper() == table.upper()
-    #     ]
-    #     if mask_table:
-    #         return True
-    #     return False
-
     def df_to_gdf(
-        self, df: pd.DataFrame, spatial_col: str, pyarrow_schema: pyarrow.Schema
+        self,
+        df: pd.DataFrame,
+        spatial_col: str,
+        pyarrow_schema: pyarrow.Schema,
     ) -> gpd.GeoDataFrame:
         """
         Convert a pandas DataFrame to a geopandas GeoDataFrame.
@@ -1586,42 +1239,20 @@ class OracleDatabase(db_lib.DB):
         :type spatial_col: str
         """
         LOGGER.debug("    converting df to gdf...")
-        # gdf = gpd.GeoDataFrame(
-        #     df,
-        #     geometry=gpd.GeoSeries.from_wkt(
-        #         df[spatial_col.lower()],
-        #     ),
-        #     crs="EPSG:3005",
-        # )
-
-        # # Convert to Shapely geometries
-        # gdf[spatial_col.lower()] = gdf[spatial_col.lower()].apply(
-        #     shapely.wkb.dumps
-        # )
-
-        # trying to hack the geopandas dataframe without using geopandas
-        # rely on the metadata to inform that geopandas
 
         # convert from WKT to WKB
         LOGGER.debug("df types: %s", df.dtypes)
         LOGGER.debug("sample spatial data: %s", df[spatial_col.lower()].head(5))
-        # df[spatial_col.lower()] = df[spatial_col.lower()].apply(
-        #     shapely.wkt.loads
-        # )
-        # df[spatial_col.lower()] = df[spatial_col.lower()].apply(
-        #     shapely.wkb.dumps
-        # )
         if not isinstance(df[spatial_col.lower()].head(1)[0], bytes):
             LOGGER.debug("convert to WKB")
             df[spatial_col.lower()] = df[spatial_col.lower()].apply(
-                lambda x: shapely.wkb.dumps(shapely.wkt.loads(x))
+                lambda x: shapely.wkb.dumps(shapely.wkt.loads(x)),
             )
 
         tabletmp = pyarrow.Table.from_pandas(df)
         LOGGER.debug("pyarrow schema: %s", tabletmp.schema)
-        table = pyarrow.Table.from_pandas(df, pyarrow_schema)
         # Convert the GeoDataFrame to a PyArrow Table
-        return table
+        return pyarrow.Table.from_pandas(df, pyarrow_schema)
 
     def extract_data(
         self,
@@ -1632,6 +1263,24 @@ class OracleDatabase(db_lib.DB):
         chunk_size: int = 25000,
         max_records: int = 0,
     ) -> bool:
+        """
+        Extract the data from the table and write it to a duckdb file.
+
+        :param table: table name that should be extracted from the oracle
+            database
+        :type table: str
+        :param export_file: The path to the export file that should be populated
+            with data from the database table.
+        :type export_file: pathlib.Path
+        :param overwrite: not used
+        :type overwrite: bool, optional
+        :param chunk_size: not used
+        :type chunk_size: int, optional
+        :param max_records: not used
+        :type max_records: int, optional
+        :return: the result of the data extraction.
+        :rtype: bool
+        """
         LOGGER.info("exporting table %s to %s", table, export_file)
         extract = Extractor(
             table_name=table,
@@ -1641,94 +1290,6 @@ class OracleDatabase(db_lib.DB):
             data_cls=self.data_classification,
         )
         return extract.extract()
-
-    # def load_data_classification(self) -> None:
-    #     """
-    #     Load the data classification from the database.
-
-    #     :return: None
-    #     """
-    #     if not self.data_classification_struct:
-    #         self.data_classification_struct = db_lib.DataClassification(
-    #             self,
-    #             schema=self.schema_2_sync,
-    #         )
-    #         self.data_classification_struct.load_data_classification()
-
-    def extract_data_delete_me(
-        self,
-        table: str,
-        export_file: pathlib.Path,
-        *,
-        overwrite: bool = False,
-        chunk_size: int = 25000,
-        max_records: int = 0,
-    ) -> bool:
-        """
-        Extract a table from the database to a parquet file.
-
-        This method overrides the default method id db_lib to enable forking
-        logic when a table with a SDO_GEOMETRY column is encountered.
-
-        :param table: the name of the table who's data will be copied to the
-            parquet file
-        :type table: str
-        :param export_file: the full path to the file that will be created, and
-            populated with the data from the table.
-        :type export_file: str
-        :param overwrite: if True the file will be overwritten if it exists,
-        :return: True if the file was created, False if it was not
-        :rtype: bool
-        """
-        LOGGER.debug("exporting table %s to %s", table, export_file)
-        file_created = False
-
-        if self.has_sdo_geometry(table):
-            LOGGER.info("table %s has SDO_GEOMETRY column", table)
-            LOGGER.info("forking to use the SDO_GEOMETRY extractor")
-            # extract_data_sdogeometry_ddb
-            # file_created = self.extract_data_sdogeometry(
-            file_created = self.extract_data_sdogeometry_ddb(
-                table=table,
-                export_file=export_file,
-                overwrite=overwrite,
-                chunk_size=chunk_size,
-                max_records=max_records,
-            )
-        elif self.has_blob(table):
-            LOGGER.info("table %s has a field with BLOB type", table)
-            LOGGER.info("using the oracle specific BLOB extractor")
-            file_created = self.extract_data_blob(
-                table=table,
-                export_file=export_file,
-                overwrite=overwrite,
-                chunk_size=chunk_size,
-                max_records=max_records,
-            )
-
-        else:
-            try:
-                file_created = super().extract_data(
-                    table,
-                    export_file,
-                    overwrite=overwrite,
-                    chunk_size=chunk_size,
-                    max_records=max_records,
-                )
-            except ValueError as e:
-                if str(e) == "year -1 is out of range":
-                    LOGGER.debug(
-                        "Caught the ValueError: %s, trying workaround...",
-                        e,
-                    )
-                    self.extract_data_illegal_year(
-                        table=table,
-                        export_file=export_file,
-                    )
-                else:
-                    msg = "error that is raised is not an illegal date"
-                    raise ValueError(msg) from e
-        return file_created
 
     def extract_data_illegal_year(
         self,
@@ -1810,11 +1371,6 @@ class OracleDatabase(db_lib.DB):
         if b"geo" in metadata.metadata:
             LOGGER.debug("input parquet is geo! %s", parquet_file_path)
             is_geo_parquet = True
-        # if not is_geo_parquet:
-        #     gdf = gpd.read_parquet(str(parquet_file_path))
-        #     # Check if the DataFrame has a geometry column
-        #     if isinstance(gdf, gpd.GeoDataFrame) and gdf.geometry is not None:
-        #         is_geo_parquet = True
 
         return is_geo_parquet
 
@@ -1838,87 +1394,6 @@ class OracleDatabase(db_lib.DB):
 
             # all spatial columns? geo_metadata.get('columns', {}).keys()
         return spatial_column
-
-    # def load_data_with_raw_blobby(
-    #     self,
-    #     table: str,
-    #     import_file: pathlib.Path,
-    # ) -> None:
-    #     """
-    #     Load data from parquet file to oracle table with BLOB columns.
-
-    #     :param table: table name
-    #     :type table: str
-    #     :param import_file: import file path
-    #     :type import_file: pathlib.Path
-    #     :param purge: Should the contents of the file be purged before writing,
-    #                   defaults to False
-    #     :type purge: bool, optional
-    #     """
-    #     # make sure there is a connection
-    #     self.get_connection()
-    #     self.get_sqlalchemy_engine()
-
-    #     total_rows_read = 0
-
-    #     # delete records if necessary
-    #     LOGGER.debug("loading data to table: %s", table)
-    #     with (
-    #         self.sql_alchemy_engine.connect() as connection,
-    #         connection.begin(),
-    #     ):
-    #         # set up a chunk reader
-    #         LOGGER.debug("reading parquet file, %s", import_file)
-    #         parquet_reader = pyarrow.parquet.ParquetFile(import_file)
-    #         iter_cnt = 1
-
-    #         # get blob columns
-    #         blob_columns = self.get_blob_columns(table)
-    #         LOGGER.debug("blob_columns: %s", blob_columns)
-
-    #         # Reading the data from parquet, in chunks
-    #         for batch in parquet_reader.iter_batches(
-    #             batch_size=self.chunk_size,
-    #         ):
-    #             # messaging
-    #             end_row_cnt = iter_cnt * self.chunk_size
-    #             start_row_cnt = end_row_cnt - self.chunk_size
-    #             LOGGER.debug(
-    #                 "writing rows from %s to %s",
-    #                 start_row_cnt,
-    #                 end_row_cnt,
-    #             )
-
-    #             # pyarrow record batch to pandas dataframe
-    #             to_ora_df = batch.to_pandas()
-    #             total_rows_read = total_rows_read + len(to_ora_df)
-    #             # override the current class implementation with my own to_sql
-    #             # method
-    #             to_ora_df.__class__ = DataFrameExtended
-
-    #             LOGGER.debug("columns in dataframe: %s", to_ora_df.columns)
-    #             to_ora_df.to_sql(
-    #                 name=table,
-    #                 con=self.connection,
-    #                 if_exists="append",
-    #                 index=False,
-    #                 blob_cols=blob_columns,
-    #             )
-    #             iter_cnt += 1
-
-    #     # now verify data load
-    #     self.connection.commit()
-    #     rows_loaded = self.get_row_count(table_name=table)
-
-    #     if not rows_loaded:
-    #         LOGGER.error("no rows loaded to table %s", table)
-    #     LOGGER.info("rows loaded to table %s are:  %s", table, rows_loaded)
-    #     LOGGER.info("rows in parquet file: %s", total_rows_read)
-    #     if rows_loaded != total_rows_read:
-    #         LOGGER.warning(
-    #             "discrepancy between source and dest data for table: %s",
-    #             table,
-    #         )
 
 
 class FixOracleSequences:
@@ -2208,7 +1683,7 @@ class FixOracleSequences:
         """
         LOGGER.debug("extract the column for the table %s", table_name)
         insert_pattern_str = (
-            r"INSERT\s+INTO\s+\w*\.?\w+\s*\((.*?)\)\s*VALUES\s*\((.*?)\);" ""
+            r"INSERT\s+INTO\s+\w*\.?\w+\s*\((.*?)\)\s*VALUES\s*\((.*?)\);"
         )
         insert_pattern = re.compile(
             insert_pattern_str,
@@ -2287,19 +1762,10 @@ class DataFrameExtended(pd.DataFrame):
             with oradb.connection.cursor() as cursor:
                 cursor.execute(f"TRUNCATE TABLE {table_name}")
 
-        # If index, then we also want the index inserted
-        # LOGGER.debug("blobcols: %s", blob_cols)
-        # LOGGER.debug("index name: %s", self.index.name)
-        # LOGGER.debug("columns: %s", list(self.columns))
-
-        # cols = [self.index.name] * index + list(self.columns)
-        # blob_cols = [col.upper() for col in blob_cols]
-        # sdo_cols = [col.upper() for col in sdo_cols]
         column_list = oradb.get_column_list(
             table_name,
             with_length_precision_scale=True,
         )
-        # LOGGER.debug("columns and types: %s", column_list)
         cols = [column_data_list[0].upper() for column_data_list in column_list]
         insert_placeholders = self.get_value_placeholders(
             column_list=column_list,
@@ -2308,19 +1774,12 @@ class DataFrameExtended(pd.DataFrame):
         )
         LOGGER.debug("insert_placeholders: %s", insert_placeholders)
         cmd = (
-            f"INSERT /*+ append */ INTO {table_name} ({', '.join(cols)}) VALUES "  # noqa: S608
+            f"INSERT /*+ append */ INTO {table_name} "
+            f"({', '.join(cols)}) VALUES "
             f"({', '.join(insert_placeholders)})"
         )
         LOGGER.debug("insert statement: %s", cmd)
 
-        # add faker values to the data if necesssary
-
-        # table_data = list(self.itertuples(index=index))
-        # LOGGER.debug("type(table_data) %s", type(table_data))
-        # Replace nan with None for SQL to accept it.
-
-        # table_data = self.to_list()
-        # LOGGER.debug("dataframe to tuple...")
         data = [
             tuple(self.convert_types(val) for val in row)
             for row in self.itertuples(index=False, name=None)
@@ -2335,28 +1794,18 @@ class DataFrameExtended(pd.DataFrame):
             LOGGER.debug("input_sizes: %s", input_sizes)
             with oradb.connection.cursor() as cursor:
                 cursor.execute(
-                    "ALTER SESSION SET NLS_TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS'"
+                    "ALTER SESSION SET NLS_TIMESTAMP_FORMAT = "
+                    "'YYYY-MM-DD HH24:MI:SS'"
                 )
                 cursor.execute(
-                    "ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD HH24:MI:SS'"
+                    "ALTER SESSION SET NLS_DATE_FORMAT = "
+                    "'YYYY-MM-DD HH24:MI:SS'"
                 )
                 LOGGER.debug("writing to oracle...")
-                # LOGGER.debug("first row: %s", data[0])
-                # TODO: circle back and fix to address ri issues
-                # try:
 
                 cursor.setinputsizes(*input_sizes)
                 cursor.executemany(cmd, data)
                 oradb.connection.commit()
-                # except:
-                #     oradb.truncate_table(table=table_name)
-
-                #     for row in data:
-                #         try:
-                #             cursor.execute(cmd, row)
-                #         except Exception as e:
-                #             LOGGER.debug("bad row: %s", row)
-                #             raise e
 
             LOGGER.debug("data has been entered, and committed!")
 
@@ -2378,15 +1827,15 @@ class DataFrameExtended(pd.DataFrame):
         if isinstance(value, numpy.datetime64):
             # Convert np.datetime64 to Python datetime.datetime
             return pd.Timestamp(value).to_pydatetime()
-        elif isinstance(value, numpy.integer):
+        if isinstance(value, numpy.integer):
             return int(value)  # Convert int64 to native int
-        elif isinstance(value, numpy.floating):
+        if isinstance(value, numpy.floating):
             return float(value)  # Convert float64 to native float
-        elif isinstance(value, pd.Timestamp):
-            return datetime.datetime.fromtimestamp(value.timestamp()).strftime(
-                "%Y-%m-%d %H:%M:%S"
+        if isinstance(value, pd.Timestamp):
+            return datetime.datetime.fromtimestamp(value.timestamp()).strftime(  # noqa: DTZ006
+                "%Y-%m-%d %H:%M:%S",
             )
-        elif pd.isna(value):
+        if pd.isna(value):
             return None  # Convert NaN to None for Oracle NULL
         return value  # Return as-is for other types (e.g., str)        )
 
@@ -2395,7 +1844,12 @@ class DataFrameExtended(pd.DataFrame):
         column_list: list[list[str, str]],
     ) -> list[str]:
         """
-        Get cursor input size / type list
+        Get cursor input size / type list.
+
+        :param column_list: _description_
+        :type column_list: list[list[str, str]]
+        :return: _description_
+        :rtype: list[str]
         """
         input_sizes = []
         for column_data in column_list:
@@ -2421,23 +1875,19 @@ class DataFrameExtended(pd.DataFrame):
         :return: a list of the value placeholders for the insert statement
         :rtype: list[str]
         """
-        # column_list = oradb.get_column_list(
-        #     self.table_name,
-        #     with_type=True,
-        # )
         col_cnt = 1
         insert_placeholders = []
         for column_data_list in column_list:
             column_name = column_data_list[0]
             column_type = column_data_list[1]
-            # column_type = constants.ORACLE_TYPES[column_type]
-            LOGGER.debug("column name: %s", column_name)
-            LOGGER.debug("column type: %s", column_type)
+
+            LOGGER.debug(
+                "column name / type: %s / %s",
+                column_name,
+                column_type,
+            )
             col_placeholder = f":{col_cnt}"
-            # mask_obj = oradb.data_classification.get_mask_info(
-            #     table_name=table_name,
-            #     column_name=column_name,
-            # )
+
             if column_type in [
                 constants.ORACLE_TYPES.BLOB,
                 constants.ORACLE_TYPES.CLOB,
@@ -2447,19 +1897,9 @@ class DataFrameExtended(pd.DataFrame):
                 )
             elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
                 insert_placeholders.append(
-                    f"SDO_GEOM.SDO_MBR(SDO_UTIL.FROM_WKTGEOMETRY({col_placeholder}, 3005))",
+                    f"SDO_GEOM.SDO_MBR(SDO_UTIL.FROM_WKTGEOMETRY("
+                    f"{col_placeholder}, 3005))",
                 )
-            # elif mask_obj:
-            #     faker_method = mask_obj.faker_method
-            #     fake_data = self.get_default_fake_data(
-            #         column_data_list,
-            #         faker_method,
-            #     )
-            #     # may need a case, only want to insert if not null
-            #     insert_placeholders.append(
-            #         f"NVL2({col_placeholder}, {fake_data}, NULL)",
-            #     )
-            # TODO: handle the mask data here once I get this working
             else:
                 insert_placeholders.append(col_placeholder)
             col_cnt += 1
@@ -2672,102 +2112,11 @@ class Importer:
         self.oradb.get_sqlalchemy_engine()
         self.oradb.get_connection()
 
-        # populated when needed
-        # self.sdo_cols = []
-        # self.blob_cols = []
-        # self.mask_cols = []
-
-        # self.__populate_col_types()
-
-    # def __populate_col_types(self):
-    #     """
-    #     populates the following parameters:
-    #     * blob_cols
-    #     * sdo_cols
-    #     * mask_cols
-    #     """
-    #     # ensure a connection has been built
-    #     self.oradb.get_connection()
-    #     column_list = self.oradb.get_column_list(
-    #         self.table_name,
-    #         with_type=True,
-    #     )
-    #     for column_name, column_type in column_list:
-    #         mask_obj = self.data_cls.get_mask_info(self.table_name, column_name)
-    #         column_name_for_placeholder = column_name
-    #         if column_type in [
-    #             constants.ORACLE_TYPES.BLOB,
-    #             constants.ORACLE_TYPES.CLOB,
-    #         ]:
-    #             self.blob_cols.append(column_name)
-    #         elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
-    #             self.sdo_cols.append(column_name)
-    #         elif mask_obj:
-    #             self.mask_cols.append(column_name)
-
-    # def get_import_column_list(self, use_numeric: bool = False) -> list[str]:
-    #     """
-    #     Get the list of columns that are to be imported.
-
-    #     Addresses type conversions for some data types as well as handling
-    #     the generation of fake data for classified columns.
-
-    #     :return: a list of columns that can be used in an insert statement.
-    #     :rtype: list[str]
-    #     """
-    #     column_list = self.oradb.get_column_list(
-    #         self.table_name,
-    #         with_type=True,
-    #     )
-    #     # if self.blob_cols is None:
-    #     #     self.blob_cols = self.oradb.get_blob_columns(self.table_name)
-
-    #     # if self.sdo_cols is None:
-    #     #     self.sdo_cols = self.oradb.get_sdo_geometry_columns(self.table_name)
-
-    #     select_column_list = []
-    #     blob_cols = []
-    #     # Define a mapping
-    #     col_cnt = 1
-    #     for column_name, column_type in column_list:
-    #         mask_obj = self.data_cls.get_mask_info(self.table_name, column_name)
-    #         column_name_for_placeholder = column_name
-    #         if use_numeric:
-    #             column_name_for_placeholder = str(col_cnt)
-    #         if column_type in [
-    #             constants.ORACLE_TYPES.BLOB,
-    #             constants.ORACLE_TYPES.CLOB,
-    #         ]:
-    #             blob_cols.append(column_name)
-    #             # select_column_list.append(f"TO_BLOB(:{column_name})")
-    #             # NVL(TO_BLOB(:2), EMPTY_BLOB()))
-    #             select_column_list.append(
-    #                 f"NVL(TO_BLOB(:{column_name_for_placeholder}), EMPTY_BLOB())"
-    #             )
-    #         # # SDO_UTIL.FROM_WKBGEOMETRY(:3)
-    #         elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
-    #             select_column_list.append(
-    #                 f"SDO_GEOM.SDO_MBR(SDO_UTIL.FROM_WKTGEOMETRY(:{column_name_for_placeholder}, 3005))",
-    #             )
-    #             # f"SDO_UTIL.FROM_WKBGEOMETRY(TO_BLOB(:{column_name}), 3005)",
-
-    #         # TODO: figure out the masking after get the data sorted out
-    #         # # elif column_name in mask_columns:
-    #         # elif mask_obj:
-    #         #     mask_dummy_val = self.data_cls.get_mask_dummy_val(column_type)
-    #         #     column_value = f"nvl2({column_name}, {mask_dummy_val}, NULL) as {column_name.upper()}"
-    #         #     select_column_list.append(column_value)
-    #         else:
-    #             select_column_list.append(f":{column_name_for_placeholder}")
-
-    #         col_cnt += 1
-    #     return select_column_list
-
     def get_default_fake_data(
         self, column_data: list[str | int], faker_method=None
     ) -> str | int:
         """
-        Returns fake data based on the data type.
+        Return fake data based on the data type.
 
         column_data:
             0 - column name
@@ -2777,7 +2126,6 @@ class Importer:
             4 = column scale
         """
         column_type = column_data[1]
-        # LOGGER.debug("column_type: %s", column_type)
         fake_data = None
         if not faker_method:
             faker_method = constants.ORACLE_TYPES_DEFAULT_FAKER[column_type]

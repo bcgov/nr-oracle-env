@@ -120,7 +120,7 @@ def main(source, environment, refresh, table):
         click.echo("Refresh flag is not enabled.")
 
     LOGGER.debug("refresh: %s %s", refresh, type(refresh))
-    common_util.run_extract(refresh=refresh, table=table)
+    common_util.run_extract(refresh=refresh, single_table=table)
     LOGGER.debug("Finished running extract")
 
 

@@ -232,7 +232,7 @@ class DB(ABC):
     @abstractmethod
     def disable_fk_constraints(
         self,
-        constraint_list: list[TableConstraints],
+        constraint_list: list[data_types.TableConstraints],
     ) -> None:
         """
         Disable foreign key constraints.
@@ -352,7 +352,7 @@ class DB(ABC):
     @abstractmethod
     def enable_constraints(
         self,
-        constraint_list: list[TableConstraints],
+        constraint_list: list[data_types.TableConstraints],
     ) -> None:
         """
         Enable all foreign key constraints.
@@ -805,85 +805,3 @@ class DB(ABC):
                     params=None,
                     orig=None,
                 )
-
-
-# class DataMasking:
-#     """
-#     Data masking class.
-#     """
-
-#     def __init__(self, env_str: str):
-#         self.env_str = env_str
-#         self.app_paths = app_paths.AppPaths()
-
-#         self.get_data_mask_ss()
-#         self.masked_data = constants.DATA_TO_MASK
-
-#     def get_data_mask_ss(self) -> None:
-#         """
-#         Retrieve the data classification spreadsheet from object storage.
-#         """
-#         local_path = self.app_paths.get_data_classification_local_path()
-#         ostore_path = self.app_paths.get_data_classification_ostore_path()
-#         if not local_path.exists():
-#             LOGGER.debug("local path %s does not exist", local_path)
-#             # download the file from object storage
-#             LOGGER.debug("downloading file from object storage")
-
-#     def get_masked_tables(self) -> list[str]:
-#         """
-#         Return a list of masked tables.
-#         """
-#         return [
-#             mask_meta_data.table_name for mask_meta_data in self.masked_data
-#         ]
-
-#     def get_masked_columns(self, table_name: str) -> list[str]:
-#         """
-#         Return a list of masked columns.
-
-#         :param table_name: input table who's columns that should be masked will
-#             be returned.
-#         :type table_name: str
-#         :return: list of columns for the given table that should be masked.
-#         :rtype: list[str]
-#         """
-#         return [
-#             mask_meta_data.column_name
-#             for mask_meta_data in self.masked_data
-#             if mask_meta_data.table_name.upper() == table_name.upper()
-#         ]
-
-#     def has_masked_data(self, table_name: str) -> bool:
-#         """
-#         Check if the table has masked data.
-
-#         :param table_name: name of table to check for masked data.
-#         :type table_name: str
-#         :return: True if the table has masked data, False if it does not.
-#         :rtype: bool
-#         """
-#         return any(
-#             mask_meta_data.table_name.upper() == table_name.upper()
-#             for mask_meta_data in self.masked_data
-#         )
-
-#     def get_mask_dummy_val(self, data_type: constants.ORACLE_TYPES) -> str:
-#         """
-#         Return the dummy value for the data type.
-
-#         Recieves an oracle type like VARCHAR2, NUMBER, etc. and returns a dummy
-#         value that will go into the cells for this column that will be used
-#         to indicate that a particular column has been masked.
-
-#         :param data_type: the data type of the column to be masked
-#         :type data_type: constants.ORACLE_TYPES
-#         :return: the dummy value for the data type
-#         :rtype: str
-#         """
-#         if data_type not in constants.OracleMaskValuesMap:
-#             raise ValueError(  # noqa: TRY003
-#                 f"data type %s not in OracleMaskValuesMap",
-#                 str(data_type),
-#             )
-#         return constants.OracleMaskValuesMap[data_type]
