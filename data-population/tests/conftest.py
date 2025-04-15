@@ -29,6 +29,7 @@ pytest_plugins = [
     "fixtures.db_fixtures",
     "fixtures.db_ora_extractor",
     "fixtures.duckdb_fixtures",
+    "fixtures.dataclassification_fixtures",
 ]
 
 testSession = None

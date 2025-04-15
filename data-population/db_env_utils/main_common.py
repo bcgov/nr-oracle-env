@@ -431,28 +431,27 @@ class Utility:
                 continue
             # the remote file either does not exist, or the refresh flag is set
             # to true, re-export the file and replace the local and remote data
-            else:
-                LOGGER.info(
-                    "Export file %s does not exist in object store, exporting",
-                    ostore_export_file,
-                )
+            LOGGER.info(
+                "Export file %s does not exist in object store, exporting",
+                ostore_export_file,
+            )
 
-                file_created = db_connection.extract_data(
-                    table,
-                    local_export_file,
-                    overwrite=refresh,
-                )
+            file_created = db_connection.extract_data(
+                table,
+                local_export_file,
+                overwrite=refresh,
+            )
 
-                if file_created:
-                    # push the file to object store, if a new file has been
-                    # created
-                    ostore.put_data_files(
-                        [table],
-                        self.env_obj.current_env,
-                        self.db_type,
-                    )
-                    LOGGER.debug("pausing for 5 seconds")
-                    time.sleep(5)
+            if file_created:
+                # push the file to object store, if a new file has been
+                # created
+                ostore.put_data_files(
+                    [table],
+                    self.env_obj.current_env,
+                    self.db_type,
+                )
+                LOGGER.debug("pausing for 5 seconds")
+                time.sleep(5)
         if self.db_type == constants.DBType.OC_POSTGRES:
             self.kube_client.close_port_forward()
 
@@ -493,7 +492,8 @@ class Utility:
 
             local_db_params.schema_to_sync = self.env_obj.get_schema_to_sync()
             local_docker_db = oradb_lib.OracleDatabase(
-                local_db_params, app_paths=self.app_paths
+                local_db_params,
+                app_paths=self.app_paths,
             )
 
         elif self.db_type == constants.DBType.OC_POSTGRES:

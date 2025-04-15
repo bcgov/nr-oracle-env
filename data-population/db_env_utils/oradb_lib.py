@@ -2313,7 +2313,7 @@ class DuckDbUtil:
         """
         self.ddb_con.close()
 
-    def get_spatial_columns(self):
+    def get_spatial_columns(self) -> list[str]:
         """
         Return the list of spatial columns in the table.
 
@@ -2425,7 +2425,7 @@ class DuckDbUtil:
         # configure the column mapping for the insert statement, this is
         # required for spatial so that the wkb data is converted to the correct
         # GEOMETRY type when the data gets inserted.
-        if self.insert_cols == None:
+        if self.insert_cols is None:
             self.insert_cols = []
             columns = self.get_columns()
             for col in columns:
@@ -2543,8 +2543,8 @@ class DuckDbUtil:
             """  # noqa: S608
 
             self.ddb_con.sql(chunk_insert)
-        except duckdb.duckdb.ConversionException as e:
-            LOGGER.exception(str(e))
+        except duckdb.duckdb.ConversionException:
+            LOGGER.exception("error inserting data into duckdb")
             LOGGER.debug("chunk causing issues: %s ", chunk)
             raise
 
@@ -2616,10 +2616,9 @@ class DataClassification:
         :rtype: str
         """
         if data_type not in constants.OracleMaskValuesMap:
-            raise ValueError(  # noqa: TRY003
-                f"data type %s not in OracleMaskValuesMap",
-                str(data_type),
-            )
+            msg = (f"data type {data_type} not in OracleMaskValuesMap",)
+            raise ValueError(msg)
+
         return constants.OracleMaskValuesMap[data_type]
 
     def has_masking(self, table_name: str) -> bool:
@@ -2631,9 +2630,7 @@ class DataClassification:
         :return: True if the table has any masking, False otherwise
         :rtype: bool
         """
-        if table_name.upper() in self.dc_struct:
-            return True
-        return False
+        return table_name.upper() in self.dc_struct
 
     def load(self) -> None:
         """
@@ -2655,8 +2652,7 @@ class DataClassification:
                 dfs["INFO SECURITY CLASS"].str.lower() != "public",
                 ["TABLE NAME", "COLUMN NAME", "INFO SECURITY CLASS"],
             ]
-            for index, row in subset_df.iterrows():
-                #
+            for _index, row in subset_df.iterrows():
                 tab = row["TABLE NAME"].upper()
                 col = row["COLUMN NAME"].upper()
 
@@ -2674,9 +2670,22 @@ class DataClassification:
 
 
 class EnableConstraintsMaxRetriesError(Exception):
+    """Error for exceeding max retries for enabling constraints."""
+
     def __init__(
-        self, retry_attempts: int, constraint: data_types.TableConstraints
-    ):
+        self,
+        retry_attempts: int,
+        constraint: data_types.TableConstraints,
+    ) -> None:
+        """
+        Construct EnableConstraintsMaxRetriesError.
+
+        :param retry_attempts: number of retries that have been attempted
+        :type retry_attempts: int
+        :param constraint: description of the constraint that is causing the
+            error.
+        :type constraint: data_types.TableConstraints
+        """
         self.message = (
             f"Retries have exceeded the {retry_attempts} max retries, error "
             f"triggered by constraint: {constraint.constraint_name} which "
