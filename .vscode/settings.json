@@ -69,5 +69,9 @@
     },
     "terminal.integrated.scrollback": 10000,
     "debug.console.maxHistoryItems": 10000,
+    "github.copilot.advanced": {
+        "debug.useNodeFetcher": true,
+        "debug.useNodeFetchFetcher": false
+    },
 }
 

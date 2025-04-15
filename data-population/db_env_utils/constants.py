@@ -219,14 +219,14 @@ DATA_TO_MASK = [
         percent_null=80,
     ),
     # data_types.DataToMask(
-    #     table_name="FOREST_CLIENT",  # noqa: ERA001
-    #     schema="THE",  # noqa: ERA001
-    #     column_name="CLIENT_ID_TYPE_CODE",  # noqa: ERA001
-    #     faker_method=lambda: fake.word(  # noqa: ERA001
-    #         ext_word_list=["SIN", "BCDL", "ABDL", "PSPT"]  # noqa: ERA001
-    #     ),  # noqa: ERA001
-    #     percent_null=85,  # noqa: ERA001
-    # ),  # noqa: ERA001
+    #     table_name="FOREST_CLIENT",
+    #     schema="THE",
+    #     column_name="CLIENT_ID_TYPE_CODE",
+    #     faker_method=lambda: fake.word(
+    #         ext_word_list=["SIN", "BCDL", "ABDL", "PSPT"]
+    #     ),
+    #     percent_null=85,
+    # ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",

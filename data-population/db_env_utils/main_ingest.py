@@ -72,32 +72,32 @@ LOGGER = logging.getLogger(__name__)
     is_flag=True,
     help="if set true all tables will be truncated in db before load",
 )
-def main(dest, environment, purge, refreshdb) -> None:
+def main(dest: str, environment: str, purge: bool, refreshdb: bool) -> None:  # noqa: FBT001
     """
     Load the data from object store cache to local oracle database.
 
     \b
-    dest: (The destination local database that is being populated)
-        - SPAR - Load cached SPAR data into the SPAR database.
-        - ORA  - Load cached ORA data into the ORA database.
+    destintation database :
+        * SPAR - Load cached SPAR data into the SPAR database.
+        * ORA  - Load cached ORA data into the ORA database.
+
 
     \b
     Environment:
         * TEST - Load data that was extracted from the test environment.
         * PROD - Load data that was extracted from the production environment.
 
-    \b
     --purge: (Optional) set this flag if you want to ensure the data that is
              cached in object store is being used for the load.  Otherwise
              will re-use any locally cached data from previous runs.
 
-    \b
+
     --refreshdb: (Optional) set this flag if you want to re-load all the data
             in the database.  If set all tables will be truncated before the
             load is attempted.  If not set only empty tables will be loaded,
             ie tables with no rows.
-    """
-    global LOGGER
+    """  # noqa: D301
+    global LOGGER  # noqa: PLW0603
     dest = dest.upper()  # Ensure uppercase for consistency
     environment = environment.upper()  # Ensure uppercase for consistency
     click.echo(f"Selected environment: {environment}")
@@ -111,20 +111,20 @@ def main(dest, environment, purge, refreshdb) -> None:
 
     if purge:
         click.echo(
-            "Purge flag is enabled. Will remove local files, and then pull new ones from ostore..."
+            "Purge flag is enabled. Will remove local files, and then pull "
+            "new ones from ostore...",
         )
     else:
         click.echo(
-            "Purge flag is not enabled... Only load data from local files."
+            "Purge flag is not enabled... Only load data from local files.",
         )
-
     if refreshdb:
         click.echo(
-            "refreshdb flag is enabled. All tables will truncated before load"
+            "refreshdb flag is enabled. All tables will truncated before load",
         )
     else:
         click.echo(
-            "refreshdb flag is not enabled... Only empty tables will be loaded"
+            "refreshdb flag is not enabled... Only empty tables will be loaded",
         )
 
     LOGGER.info("purge: %s %s", purge, type(purge))

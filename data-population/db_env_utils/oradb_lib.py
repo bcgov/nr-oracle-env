@@ -41,6 +41,7 @@ from oracledb.exceptions import DatabaseError
 
 if TYPE_CHECKING:
     import pathlib
+    from collections.abc import Callable
 
     import app_paths
     import geopandas as gpd
@@ -670,7 +671,7 @@ class OracleDatabase(db_lib.DB):
         # elements when in fact it only has one... the list comp takes care of
         # that.
         records_to_delete = list(
-            set([rec[0 : len(constraint.column_names)] for rec in results])  # noqa: C403
+            set([rec[0 : len(constraint.column_names)] for rec in results])
         )
 
         # get rid of any empty records
@@ -1259,9 +1260,9 @@ class OracleDatabase(db_lib.DB):
         table: str,
         export_file: pathlib.Path,
         *,
-        overwrite: bool = False,
-        chunk_size: int = 25000,
-        max_records: int = 0,
+        overwrite: bool = False,  # noqa: ARG002
+        chunk_size: int = 25000,  # noqa: ARG002
+        max_records: int = 0,  # noqa: ARG002
     ) -> bool:
         """
         Extract the data from the table and write it to a duckdb file.
@@ -1769,12 +1770,10 @@ class DataFrameExtended(pd.DataFrame):
         cols = [column_data_list[0].upper() for column_data_list in column_list]
         insert_placeholders = self.get_value_placeholders(
             column_list=column_list,
-            table_name=table_name,
-            oradb=oradb,
         )
         LOGGER.debug("insert_placeholders: %s", insert_placeholders)
         cmd = (
-            f"INSERT /*+ append */ INTO {table_name} "
+            f"INSERT /*+ append */ INTO {table_name} "  # noqa: S608
             f"({', '.join(cols)}) VALUES "
             f"({', '.join(insert_placeholders)})"
         )
@@ -1795,11 +1794,11 @@ class DataFrameExtended(pd.DataFrame):
             with oradb.connection.cursor() as cursor:
                 cursor.execute(
                     "ALTER SESSION SET NLS_TIMESTAMP_FORMAT = "
-                    "'YYYY-MM-DD HH24:MI:SS'"
+                    "'YYYY-MM-DD HH24:MI:SS'",
                 )
                 cursor.execute(
                     "ALTER SESSION SET NLS_DATE_FORMAT = "
-                    "'YYYY-MM-DD HH24:MI:SS'"
+                    "'YYYY-MM-DD HH24:MI:SS'",
                 )
                 LOGGER.debug("writing to oracle...")
 
@@ -1863,9 +1862,7 @@ class DataFrameExtended(pd.DataFrame):
 
     def get_value_placeholders(
         self,
-        table_name: str,
         column_list: list[list[str, str]],
-        oradb: OracleDatabase,
     ) -> list[str]:
         """
         Get the value placeholders for the insert statement.
@@ -1945,7 +1942,21 @@ class Extractor:
         oradb: OracleDatabase,
         export_file: pathlib.Path,
         data_cls: DataClassification,
-    ):
+    ) -> None:
+        """
+        Construct extractor instance.
+
+        :param table_name: _description_
+        :type table_name: str
+        :param db_schema: _description_
+        :type db_schema: str
+        :param oradb: _description_
+        :type oradb: OracleDatabase
+        :param export_file: _description_
+        :type export_file: pathlib.Path
+        :param data_cls: _description_
+        :type data_cls: DataClassification
+        """
         self.table_name = table_name
         self.db_schema = db_schema
         self.oradb = oradb
@@ -1955,13 +1966,6 @@ class Extractor:
         # make sure there is a connection to the database
         self.oradb.get_sqlalchemy_engine()
         self.oradb.get_connection()
-
-        # example of how to get dbapi connection from the engine
-        # connection = engine.connect()
-        # dbapi_conn = connection.connection
-
-    def log_mask_config(self):
-        LOGGER.debug("const data mask: %s", constants.DATA_TO_MASK)
 
     def extract(
         self,
@@ -1974,10 +1978,12 @@ class Extractor:
 
         :param overwrite: Doesn't do anything
         :type overwrite: bool, optional
-        :param max_records: _description_, defaults to 0
+        :param max_records: identifies the maximum number of records to load.
+            This will never be exact, but rather when the chunk * the iteration
+            exceeds this target value, defaults to 0, which will load all the
+            data.
         :type max_records: int, optional
-        :raises ValueError: _description_
-        :return: _description_
+        :return: returns true if the extraction was successful.
         :rtype: bool
         """
         # identify if spatial data
@@ -1994,16 +2000,17 @@ class Extractor:
 
         ddb_util = DuckDbUtil(self.export_file, self.table_name)
         chunk_cnt = 0
-        first = True
-        df_cols = None
 
         ora_cols = self.oradb.get_column_list(self.table_name, with_type=True)
         ddb_util.create_table(ora_cols)
 
-        for chunk in pd.read_sql(
-            query,
-            self.oradb.sql_alchemy_engine,
-            chunksize=chunk_size,
+        for chunk_cnt, chunk in enumerate(
+            pd.read_sql(
+                query,
+                self.oradb.sql_alchemy_engine,
+                chunksize=chunk_size,
+            ),
+            start=1,
         ):
             # handle spatial
             if spatial_col:
@@ -2015,23 +2022,21 @@ class Extractor:
                     shapely.wkb.dumps,
                 )
 
-            if first:
+            if chunk_cnt == 1:
                 LOGGER.debug(
-                    "creating the table, writing first chunk: %s", chunk_size
+                    "creating the table, writing first chunk: %s",
+                    chunk_size,
                 )
                 ddb_util.insert_chunk(chunk)
-
-                first = False
             else:
                 LOGGER.info(
                     "writing chunk to the table (chunk/chunk_size), (%s/%s)",
-                    chunk_cnt + 1,
-                    (chunk_cnt + 1) * chunk_size,
+                    chunk_cnt,
+                    chunk_cnt * chunk_size,
                 )
                 ddb_util.insert_chunk(chunk)
-            if (max_records) and chunk_cnt * chunk_size > max_records:
+            if max_records and chunk_cnt * chunk_size > max_records:
                 break
-            chunk_cnt += 1
         return True
 
     def generate_extract_sql_query(self) -> str:
@@ -2049,15 +2054,9 @@ class Extractor:
         :return: a query that can be used to extract the data in the table.
         :rtype: str
         """
-        # mask_obj = db_lib.DataMasking()
-        # mask_columns = mask_obj.get_masked_columns(table_name=self.table_name)
-
         column_list = self.oradb.get_column_list(
-            self.table_name, with_type=True
-        )
-        blob_columns = self.oradb.get_blob_columns(self.table_name)
-        sdo_geometry_columns = self.oradb.get_sdo_geometry_columns(
-            self.table_name
+            self.table_name,
+            with_type=True,
         )
 
         select_column_list = []
@@ -2076,10 +2075,12 @@ class Extractor:
                 select_column_list.append(
                     f"SDO_UTIL.TO_WKTGEOMETRY({column_name}) AS {column_name}",
                 )
-            # elif column_name in mask_columns:
             elif mask_obj:
                 mask_dummy_val = self.data_cls.get_mask_dummy_val(column_type)
-                column_value = f"nvl2({column_name}, {mask_dummy_val}, NULL) as {column_name.upper()}"
+                column_value = (
+                    f"nvl2({column_name}, {mask_dummy_val}, NULL) as "
+                    f"{column_name.upper()}"
+                )
                 select_column_list.append(column_value)
             else:
                 select_column_list.append(column_name)
@@ -2092,6 +2093,10 @@ class Extractor:
 
 
 class Importer:
+    """
+    Import data from a duckdb file into oracle.
+    """
+
     def __init__(
         self,
         table_name: str,
@@ -2099,7 +2104,23 @@ class Importer:
         oradb: OracleDatabase,
         import_file: pathlib.Path,
         data_cls: DataClassification,
-    ):
+    ) -> None:
+        """
+        Construct instance of the Importer class.
+
+        :param table_name: name of the table to be imported
+        :type table_name: str
+        :param db_schema: database schema to import to
+        :type db_schema: str
+        :param oradb: oracle database object.
+        :type oradb: OracleDatabase
+        :param import_file: path to the duck db file that is to be imported
+        :type import_file: pathlib.Path
+        :param data_cls: data classification object that is used to determine
+            what data has been masked, and how to populate those columns with
+            fake data.
+        :type data_cls: DataClassification
+        """
         self.table_name = table_name
         self.db_schema = db_schema
         self.oradb = oradb
@@ -2113,7 +2134,9 @@ class Importer:
         self.oradb.get_connection()
 
     def get_default_fake_data(
-        self, column_data: list[str | int], faker_method=None
+        self,
+        column_data: list[str | int],
+        faker_method: None | Callable = None,
     ) -> str | int:
         """
         Return fake data based on the data type.
@@ -2124,6 +2147,18 @@ class Importer:
             2 = column length
             3 = column precision
             4 = column scale
+
+        :param column_data: a list of 5 elements that describe the column
+            that we want to apply the fake method to.  5 elements are described
+            above ^.
+        :type column_data: list[str  |  int]
+        :param faker_method: a reference to a faker method that will be used
+            to populate the column with fake data.
+        :type faker_method: Callable, optional
+        :raises ValueError: _description_
+        :return: _description_
+        :rtype: str | int
+
         """
         column_type = column_data[1]
         fake_data = None
@@ -2131,47 +2166,54 @@ class Importer:
             faker_method = constants.ORACLE_TYPES_DEFAULT_FAKER[column_type]
         if column_type in [
             constants.ORACLE_TYPES.VARCHAR2,
-        ]:
-            try:
-                fake_data = faker_method()
-                fake_data = fake_data[0 : column_data[2]]
-            except:
-                LOGGER.debug("faker_method: %s", faker_method)
-                LOGGER.debug("column_data: %s", column_data)
-                LOGGER.debug("fakedata: %s", fake_data)
-                raise
-
-        elif column_type in [
             constants.ORACLE_TYPES.CHAR,
             constants.ORACLE_TYPES.LONG,
         ]:
-            fake_data = faker_method()
-            # fake_data = f"'{fake_data}'"
+            try:
+                fake_data = faker_method()
+                if column_type == constants.ORACLE_TYPES.VARCHAR2:
+                    fake_data = fake_data[0 : column_data[2]]
+            except ValueError as err:
+                LOGGER.debug("faker_method: %s", faker_method)
+                LOGGER.debug("column_data: %s", column_data)
+                LOGGER.debug("fakedata: %s", fake_data)
+                msg = f"unable to call the faker method: {faker_method}"
+                raise ValueError(msg) from err  # Updated to include `from err`
         elif column_type in [
             constants.ORACLE_TYPES.NUMBER,
+            constants.ORACLE_TYPES.DATE,
         ]:
             fake_data = faker_method()
-        elif column_type in [constants.ORACLE_TYPES.DATE]:
-            fake_data = faker_method()
-            # fake_data = f"'{fake_data}'"
         else:
             msg = "no faker defined for the data type: %s"
             LOGGER.error(msg, column_data)
             raise ValueError(msg)
-        # LOGGER.debug("fake data: %s", fake_data)
         return fake_data
 
-    def import_data(self):
+    def import_data(self) -> bool:
+        """
+        Perform the actual import of the data from the duckdb file to oracle.
+
+        The following summarizes the steps taken by the import process:
+            * verify connection
+            * get destination table column definitions
+            * connect to the duckdb source and configure loading of data in
+                chunks
+            * determine if the table has masked data, and if so populates the
+                masked columns with fake data.
+            * calls the extended dataframe to_sql method to load the data.
+
+
+        :return: if the import was successful will return a boolean True
+        :rtype: bool
+        """
         # make sure there is a connection
         self.oradb.get_sqlalchemy_engine()
-        # if self.blob_cols is None:
-        #     self.blob_cols = self.oradb.get_blob_columns(self.table_name)
 
-        # if self.sdo_cols is None:
-        #     self.sdo_cols = self.oradb.get_sdo_geometry_columns(self.table_name)
-        # import_column_list = self.get_import_column_list(use_numeric=True)
+        # retrieve data about the columns for the table
         column_list = self.oradb.get_column_list(
-            table=self.table_name, with_length_precision_scale=True
+            table=self.table_name,
+            with_length_precision_scale=True,
         )
         dest_tab_rows = self.oradb.get_row_count(self.table_name)
         LOGGER.debug("table: %s has %s rows", self.table_name, dest_tab_rows)
@@ -2182,16 +2224,11 @@ class Importer:
             )
             LOGGER.debug("getting new chunk from ddb")
 
-            # cursor = self.oradb.connection.cursor()
-            # cursor.arraysize = self.oradb.ora_cur_arraysize
-
-            # blob_cols = [col.lower() for col in self.blob_cols]
             ddb_chunk_generator = duckdb_util.get_chunk_generator(
                 self.chunk_size,
             )
             chunk_count = 0
             for ddb_chunk in ddb_chunk_generator:
-                #
                 # ensure all cols in the dataframe are upper case, to match
                 # column names in oracle
                 ddb_chunk.columns = [col.upper() for col in ddb_chunk.columns]
@@ -2210,14 +2247,9 @@ class Importer:
                         if mask_obj:
                             LOGGER.debug("mask_obj: %s", mask_obj)
                             faker_method = mask_obj.faker_method
-                            # fake_data = self.get_default_fake_data(
-                            #     column_data_list,
-                            #     faker_method,
-                            # )
-                            mask = ddb_chunk[
+                            mask = ddb_chunk[  # noqa: PD004
                                 column_name
                             ].notnull()  # or .notna()
-                            # LOGGER.debug("mask: %s", mask)
                             ddb_chunk.loc[mask, column_name] = [
                                 self.get_default_fake_data(
                                     column_data=column_data_list,
@@ -2225,48 +2257,7 @@ class Importer:
                                 )
                                 for _ in range(mask.sum())
                             ]
-                            # self[column_name] = fake_data
 
-                # insert_statement = f"""
-                #     INSERT INTO {self.db_schema}.{self.table_name} ({f",".join(column_list)})
-                #     VALUES ({", ".join(import_column_list)})
-                # """  # noqa: S608
-                # LOGGER.debug("insert_statement: %s", insert_statement)
-                # blob_cols = self.oradb.get_blob_columns(self.table_name)
-
-                # if self.sdo_cols:
-                #     for sdo_col in self.sdo_cols:
-                #         LOGGER.debug("trying to address sdo col %s", sdo_col)
-                #         LOGGER.debug(
-                #             "data frame columns: %s", ddb_chunk.columns
-                #         )
-                #     input_sizes = []
-                #     for col in column_list:
-                #         if col in self.sdo_cols:
-                #             LOGGER.debug("found sdo col %s", col)
-                #             input_sizes.append(oracledb.CLOB)
-                #         else:
-                #             input_sizes.append(None)
-
-                #     LOGGER.debug("rearrange dataframe for loading...")
-                #     data = [
-                #         tuple(self.convert_types(val) for val in row)
-                #         for row in ddb_chunk.itertuples(index=False, name=None)
-                #     ]
-                #     LOGGER.debug("input sizes: %s", input_sizes)
-                #     cursor.setinputsizes(*input_sizes)
-
-                #     LOGGER.debug("data: %s", data[0])
-                #     LOGGER.debug("loading %s rows", len(data))
-                #     cursor.executemany(insert_statement, data)
-                # else:
-                # ddb_chunk.to_sql(
-                #     self.table_name,
-                #     self.oradb.connection,
-                #     schema=self.db_schema,
-                #     if_exists="append",
-                #     index=False,
-                # )
                 ddb_chunk.__class__ = DataFrameExtended
                 ddb_chunk.to_sql(
                     self.table_name,
@@ -2275,72 +2266,28 @@ class Importer:
                     if_exists="append",
                     index=False,
                 )
-                chunk_count += 1
-                # if chunk_count > 3:
-                #     break
+                chunk_count += 1  # noqa: SIM113
 
                 LOGGER.info("loaded %s rows", chunk_count * self.chunk_size)
                 LOGGER.debug("getting new chunk to load...")
             self.oradb.connection.commit()
         return True
 
-    # def generate_import_sql_query(self) -> str:
-    #     """
-    #     Return a sql query to import the dataframe with.
-
-    #     The query addresses the following conditions:
-    #     * blob data is not copied and is replaced with EMPTY_BLOB() as <column>
-    #     * sdo geometry is converted to wkt
-    #     * if columns have been defined as sensitive then they are not extracted
-    #         and are replaced with nulls if nulls and placeholder if not.
-    #         placeholder values are dependent on data type.  For example
-    #         varchar will get '1' nums 1 etc..
-
-    #     :return: a query that can be used to extract the data in the table.
-    #     :rtype: str
-    #     """
-
-    #     column_list = self.oradb.get_column_list(
-    #         self.table_name, with_type=True
-    #     )
-    #     blob_columns = self.oradb.get_blob_columns(self.table_name)
-    #     sdo_geometry_columns = self.oradb.get_sdo_geometry_columns(
-    #         self.table_name
-    #     )
-
-    #     select_column_list = []
-
-    #     # Define a mapping
-    #     for column_name, column_type in column_list:
-    #         mask_obj = self.data_cls.get_mask_info(self.table_name, column_name)
-    #         if column_type in [
-    #             constants.ORACLE_TYPES.BLOB,
-    #             constants.ORACLE_TYPES.CLOB,
-    #         ]:
-    #             select_column_list.append(
-    #                 f"EMPTY_BLOB() AS {column_name}",
-    #             )
-    #         elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
-    #             select_column_list.append(
-    #                 f"SDO_GEOM.SDO_MBR(SDO_UTIL.TO_WKTGEOMETRY({column_name})) AS {column_name}",
-    #             )
-    #         # elif column_name in mask_columns:
-    #         elif mask_obj:
-    #             mask_dummy_val = self.data_cls.get_mask_dummy_val(column_type)
-    #             column_value = f"nvl2({column_name}, {mask_dummy_val}, NULL) as {column_name.upper()}"
-    #             select_column_list.append(column_value)
-    #         else:
-    #             select_column_list.append(column_name)
-    #     query = (
-    #         f"SELECT {', '.join(select_column_list)} from "  # noqa: S608
-    #         f"{self.db_schema.upper()}.{self.table_name.upper()}"
-    #     )
-    #     LOGGER.debug("query: %s", query)
-    #     return query
-
 
 class DuckDbUtil:
-    def __init__(self, duckdb_path: pathlib.Path, table_name: str):
+    """
+    Wrapper class with necessary functionality for interacting with duckdb data.
+    """
+
+    def __init__(self, duckdb_path: pathlib.Path, table_name: str) -> None:
+        """
+        Duckdb util class constructor.
+
+        :param duckdb_path: _description_
+        :type duckdb_path: pathlib.Path
+        :param table_name: _description_
+        :type table_name: str
+        """
         self.duckdb_path = duckdb_path
         self.table_name = table_name
         self.ddb_con = duckdb.connect(database=self.duckdb_path)
@@ -2359,17 +2306,27 @@ class DuckDbUtil:
         # that it doesn't need to be recreated each time.
         self.query_cols = None
 
-    def close(self):
+    def close(self) -> None:
+        """
+        Close the duckdb connection.
+        """
         self.ddb_con.close()
 
     def get_spatial_columns(self):
-        query = f"""
+        """
+        Return the list of spatial columns in the table.
+
+        :return: a list of the column names that have a geometry type.
+        :rtype: list[str]
+        """
+        query = """
             SELECT column_name, data_type
             FROM information_schema.columns
-            WHERE table_name = '{self.table_name}'
-            AND (lower(data_type) LIKE '%geometry%' OR lower(data_type) LIKE '%geography%');
-        """
-        self.ddb_con.execute(query)
+            WHERE table_name = ?
+            AND (lower(data_type) LIKE '%geometry%' OR
+                 lower(data_type) LIKE '%geography%');
+            """
+        self.ddb_con.execute(query, (self.table_name,))
 
         # Fetch the results
         results = self.ddb_con.fetchall()
@@ -2380,19 +2337,31 @@ class DuckDbUtil:
             columns.append(row[0])
         return columns
 
-    def get_columns(self):
-        query = f"""
+    def get_columns(self) -> list[str]:
+        """
+        Get a list of the columns in the table.
+
+        :return: a list of the names of columns found in the table.
+        :rtype: list[str]
+        """
+        query = """
         SELECT column_name
         FROM information_schema.columns
-        WHERE table_name = '{self.table_name}';
+        WHERE table_name = ?;
         """
-        self.ddb_con.execute(query)
+        self.ddb_con.execute(query, (self.table_name,))
         results = self.ddb_con.fetchall()
         cols = [col[0] for col in results]
         LOGGER.debug("ddb table: %s columns: %s", self.table_name, cols)
         return cols
 
-    def export_to_parquet(self, export_file: pathlib.Path):
+    def export_to_parquet(self, export_file: pathlib.Path) -> None:
+        """
+        Export the duckdb table to parquet.
+
+        :param export_file: The name of the parquet file to export to.
+        :type export_file: pathlib.Path
+        """
         # need to test this.
         LOGGER.debug("write to parquet...")
 
@@ -2409,7 +2378,7 @@ class DuckDbUtil:
         ddb_2_parquet_query_str = f"""
             COPY (select {", ".join(fix_cols)} FROM {self.table_name})
             TO '{export_file}' (FORMAT PARQUET);
-        """
+        """  # noqa: S608
         LOGGER.debug(ddb_2_parquet_query_str)
         LOGGER.info("writing to parquet file: %s", export_file)
         self.ddb_con.sql(ddb_2_parquet_query_str)
@@ -2422,13 +2391,22 @@ class DuckDbUtil:
         :param ora_type: The oracle type"
         """
         LOGGER.debug("ora_type: %s", ora_type)
-        # ora_type = constants.ORACLE_TYPES[ora_type_str]
-        duck_type = constants.ORACLE_TYPES_TO_DDB_TYPES[ora_type]
-        # TODO: for varchar (num chars) and decimals (precison and scale)
-        # TODO: hold and see if we can use sqlalchemy to generate the table.
-        return duck_type
+        return constants.ORACLE_TYPES_TO_DDB_TYPES[ora_type]
 
-    def create_table(self, ora_cols):
+    def create_table(self, ora_cols: list[list[str | int]]) -> None:
+        """
+        Create a duckdb table based on oracle types.
+
+        ora_cols:
+            0 - column name
+            1 - column type
+            2 - column length
+            3 - column precision
+            4 - column scale
+
+        :param ora_cols: _description_
+        :type ora_cols: _list[list[str, str]]
+        """
         create_tab_cols = []
         for ora_col in ora_cols:
             ora_name = ora_col[0]
@@ -2447,9 +2425,9 @@ class DuckDbUtil:
         self.spatial_cols = self.get_spatial_columns()
         spatial_cols_lower = [col.lower() for col in self.spatial_cols]
 
-        # configure the column mapping for the insert statement, this is required
-        # for spatial so that the wkb data is converted to the correct GEOMETRY
-        # type when the data gets inserted.
+        # configure the column mapping for the insert statement, this is
+        # required for spatial so that the wkb data is converted to the correct
+        # GEOMETRY type when the data gets inserted.
         if self.insert_cols == None:
             self.insert_cols = []
             columns = self.get_columns()
@@ -2477,9 +2455,9 @@ class DuckDbUtil:
             f"CREATE TABLE {self.table_name} AS SELECT * FROM chunk"
         )
 
-    def get_chunk_generator(self, chunk_size: int):
+    def get_chunk_generator(self, chunk_size: int) -> pd.DataFrame:
         """
-        Gets a chunk of data from the duckdb table.
+        Get a chunk of data from the duckdb table.
 
         Addresses any specific type conversions, example the spatial data type
         gets converted to wkb.
@@ -2495,29 +2473,7 @@ class DuckDbUtil:
             self.ddb_con,
             chunksize=chunk_size,
         )
-        # chunk = self.convert_duckdb_to_oracle(chunk)
         return chunk
-
-    def convert_duckdb_to_oracle(self, df):
-        # Convert datetime64[ns] to Python datetime for Oracle compatibility
-        for column in df.select_dtypes(include=["datetime64[ns]"]).columns:
-            df[column] = pd.to_datetime(df[column])
-
-        # Convert boolean columns to NUMBER(1) for Oracle compatibility
-        for column in df.select_dtypes(include=["bool"]).columns:
-            df[column] = df[column].apply(lambda x: 1 if x else 0)
-
-        # Ensure all numeric columns are float64 for Oracle compatibility
-        for column in df.select_dtypes(include=["float64", "int64"]).columns:
-            df[column] = df[column].astype(
-                "float64"
-            )  # You can adjust precision as needed
-
-        # # Convert object (string) to varchar for Oracle compatibility
-        # for column in df.select_dtypes(include=["object"]).columns:
-        #     df[column] = df[column].astype("str")
-
-        return df
 
     def get_ddb_extract_query(self) -> str:
         """
@@ -2541,7 +2497,7 @@ class DuckDbUtil:
                 query_cols.append(col)
         self.query_cols = query_cols
 
-        query = f"SELECT {', '.join(self.query_cols)} FROM {self.table_name}"
+        query = f"SELECT {', '.join(self.query_cols)} FROM {self.table_name}"  # noqa: S608
 
         filter_obj = self.get_filterobj_clause()
         if filter_obj:
@@ -2551,6 +2507,12 @@ class DuckDbUtil:
         return query
 
     def get_filterobj_clause(self) -> None | data_types.DataFilter:
+        """
+        Get a filter object for the table if one is defined.
+
+        :return: a
+        :rtype: None | data_types.DataFilter
+        """
         for filter_obj in constants.BIG_DATA_FILTERS:
             if filter_obj.table_name.upper() == self.table_name.upper():
                 return filter_obj
@@ -2559,7 +2521,7 @@ class DuckDbUtil:
     def insert_chunk(
         self,
         chunk,
-    ):
+    ) -> None:
         """
         Write the incomming chunk to the duckdb table.
 
@@ -2577,12 +2539,10 @@ class DuckDbUtil:
         try:
             spatial_cols_lower = [col.lower() for col in self.spatial_cols]
             LOGGER.debug("spatial column for DDB: %s", spatial_cols_lower)
-            # duckdb.execute("INSERT INTO spatial_data VALUES (?, ST_GeomFromWKB(?))", (1, wkb_data))
 
             chunk_insert = f"""
                 INSERT INTO {self.table_name} SELECT {", ".join(self.insert_cols)} from chunk;
             """
-            # chunk_insert = f"INSERT INTO {self.table_name} SELECT * FROM chunk"
 
             self.ddb_con.sql(chunk_insert)
         except duckdb.duckdb.ConversionException as e:

@@ -19,7 +19,7 @@ LOGGER = logging.getLogger(__name__)
 @pytest.fixture(scope="module")
 def app_paths_fixture():
     env = env_config.Env("PROD")
-    # TODO: should mock this up further so that the app paths point to test data
+
     app_path_obj = app_paths.AppPaths(env)
     yield app_path_obj
 

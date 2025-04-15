@@ -5,9 +5,12 @@ import sys
 
 import pytest
 
+faker_loger = logging.getLogger("faker.factory")
+faker_loger.setLevel(logging.CRITICAL)
+
 LOGGER = logging.getLogger(__name__)
 
-
+# setting up the paths for the tests so they can import local modules
 back_one_path = pathlib.Path(__file__).resolve().parents[1]
 print("back_one_path: %s", back_one_path)
 sys.path.append(str(back_one_path))
@@ -25,6 +28,7 @@ pytest_plugins = [
     "fixtures.db_connection_params",
     "fixtures.db_fixtures",
     "fixtures.db_ora_extractor",
+    "fixtures.duckdb_fixtures",
 ]
 
 testSession = None

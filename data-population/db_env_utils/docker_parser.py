@@ -165,7 +165,7 @@ class ReadDockerCompose:
         dcr_user_password = self.docker_comp["x-oracle-vars"][
             "APP_USER_PASSWORD"
         ]
-        dcr_port = self.docker_comp["services"]["oracle-spar"]["ports"][
+        dcr_port = self.docker_comp["services"]["oracle-test"]["ports"][
             0
         ].split(
             ":",
