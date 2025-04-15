@@ -102,6 +102,9 @@ DB_TYPE_PYARROW_MAP = {
 }
 
 
+# columns that were removed:
+#   - FOREST_CLIENT.REGISTRY_COMPANY_TYPE_CODE
+#   - FOREST_CLIENT.CLIENT_ID_TYPE_CODE
 DATA_TO_MASK = [
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
@@ -218,15 +221,6 @@ DATA_TO_MASK = [
         faker_method=lambda: fake.sentence(),
         percent_null=80,
     ),
-    # data_types.DataToMask(
-    #     table_name="FOREST_CLIENT",
-    #     schema="THE",
-    #     column_name="CLIENT_ID_TYPE_CODE",
-    #     faker_method=lambda: fake.word(
-    #         ext_word_list=["SIN", "BCDL", "ABDL", "PSPT"]
-    #     ),
-    #     percent_null=85,
-    # ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -234,15 +228,6 @@ DATA_TO_MASK = [
         faker_method=lambda: fake.ssn(),
         percent_null=95,
     ),
-    # data_types.DataToMask(
-    #     table_name="FOREST_CLIENT",
-    #     schema="THE",
-    #     column_name="REGISTRY_COMPANY_TYPE_CODE",
-    #     faker_method=lambda: "".join(
-    #         random.choices(string.ascii_letters, k=4)
-    #     ).upper(),
-    #     percent_null=90,
-    # ),
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -302,7 +287,6 @@ class ORACLE_TYPES(Enum):  # noqa: N801
 
     An enumeration of the different database types that are supported by the
     scripts in this project.
-
     """
 
     VARCHAR2 = 1

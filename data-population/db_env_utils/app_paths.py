@@ -142,6 +142,18 @@ class AppPaths:
         env_str: str,
         db_type: constants.DBType,
     ) -> pathlib.Path:
+        """
+        Return path to duckdb file that corresponds with a table.
+
+        :param table: name of the table.
+        :type table: str
+        :param env_str: the environment string, valid values DEV/TEST/PROD
+        :type env_str: str
+        :param db_type: database type, either ORA or OC_POSTGRES
+        :type db_type: constants.DBType
+        :return: a path to the duckdb file that corresponds with the table name.
+        :rtype: pathlib.Path
+        """
         duckdb_file_name = f"{table}.{constants.DUCK_DB_SUFFIX}"
         return_path = pathlib.Path(
             constants.DATA_DIR,

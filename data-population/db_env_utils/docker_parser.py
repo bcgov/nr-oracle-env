@@ -116,7 +116,7 @@ class ReadDockerCompose:
                 docker_comp_file_path,
             )
 
-        LOGGER.info(f"Using docker-compose file: {docker_comp_file_path}")
+        LOGGER.info("Using docker-compose file: %s", docker_comp_file_path)
         return docker_comp_file_path
 
     def get_local_postgres_conn_params(self) -> env_config.ConnectionParameters:
