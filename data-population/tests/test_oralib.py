@@ -634,3 +634,13 @@ def test_fix_data(db_connection_fixture):
     LOGGER.debug("data to delete: %s", data)
     # ora.delete_no_ri_data
     # constants.
+
+
+def test_get_table_columns(db_connection_fixture):
+    ora = db_connection_fixture
+    ora.get_connection()
+    table_name = "FOREST_COVER_GEOMETRY"
+    columns = ora.get_table_columns(table_name)
+    for col in columns:
+        LOGGER.debug("col: %s", col)
+    assert True

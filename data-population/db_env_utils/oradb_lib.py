@@ -1214,12 +1214,13 @@ class OracleDatabase(db_lib.DB):
         :rtype: list[str]
         """
         query = (
-            "SELECT column_name FROM  ALL_TAB_COLUMNS WHERE "
-            f"owner = '{self.schema_2_sync}' AND TABLE_NAME = '{table}'"
+            "SELECT column_name FROM ALL_TAB_COLUMNS WHERE "
+            "owner = upper(:schema) AND table_name = upper(:table_name)"
         )
         cur = self.connection.cursor()
-        cur.execute(query)
+        cur.execute(query, schema=self.schema_2_sync, table_name=table)
         results = cur.fetchall()
+        LOGGER.debug("results: %s", results)
         return [row[0] for row in results]
 
     def df_to_gdf(
@@ -2331,11 +2332,7 @@ class DuckDbUtil:
         # Fetch the results
         results = self.ddb_con.fetchall()
 
-        # Print the results
-        columns = []
-        for row in results:
-            columns.append(row[0])
-        return columns
+        return [row[0] for row in results]
 
     def get_columns(self) -> list[str]:
         """
@@ -2437,7 +2434,7 @@ class DuckDbUtil:
                 else:
                     self.insert_cols.append(col)
 
-    def create_and_write_chunk(self, chunk):
+    def create_and_write_chunk(self, chunk: pd.DataFrame) -> None:
         """
         Create a table using the chunk data.
 
@@ -2451,8 +2448,9 @@ class DuckDbUtil:
         :param chunk: input dataframe object
         :type chunk: pandas.Dataframe
         """
+        LOGGER.debug("creating table from chunk... num rows: %s", len(chunk))
         self.ddb_con.sql(
-            f"CREATE TABLE {self.table_name} AS SELECT * FROM chunk"
+            f"CREATE TABLE {self.table_name} AS SELECT * FROM chunk",  # noqa: S608
         )
 
     def get_chunk_generator(self, chunk_size: int) -> pd.DataFrame:
@@ -2468,12 +2466,11 @@ class DuckDbUtil:
         """
         extract_query = self.get_ddb_extract_query()
         LOGGER.debug("ddb extractor sql : %s", extract_query)
-        chunk = pd.read_sql_query(
+        return pd.read_sql_query(
             extract_query,
             self.ddb_con,
             chunksize=chunk_size,
         )
-        return chunk
 
     def get_ddb_extract_query(self) -> str:
         """
@@ -2520,7 +2517,7 @@ class DuckDbUtil:
 
     def insert_chunk(
         self,
-        chunk,
+        chunk: pd.DataFrame,
     ) -> None:
         """
         Write the incomming chunk to the duckdb table.
@@ -2541,13 +2538,15 @@ class DuckDbUtil:
             LOGGER.debug("spatial column for DDB: %s", spatial_cols_lower)
 
             chunk_insert = f"""
-                INSERT INTO {self.table_name} SELECT {", ".join(self.insert_cols)} from chunk;
-            """
+                INSERT INTO {self.table_name}
+                SELECT {", ".join(self.insert_cols)} from chunk;
+            """  # noqa: S608
 
             self.ddb_con.sql(chunk_insert)
         except duckdb.duckdb.ConversionException as e:
+            LOGGER.exception(str(e))
             LOGGER.debug("chunk causing issues: %s ", chunk)
-            raise e
+            raise
 
 
 class DataClassification:
@@ -2560,7 +2559,7 @@ class DataClassification:
     the constants.DATA_TO_MASK will take precidence.
     """
 
-    def __init__(self, data_class_ss_path: pathlib.Path, schema: str):
+    def __init__(self, data_class_ss_path: pathlib.Path, schema: str) -> None:
         """
         Construct instance of the DataClassification class.
 
