@@ -81,6 +81,24 @@ class Utility:
             app_paths=self.app_paths,
         )
 
+    def pull_data_classifications(self) -> None:
+        """
+        Pull the data classification spreadsheet from object store.
+
+        This metadata is currently read from a ss, and is used to identify
+        the security classification of the data that is being extracted from
+        the database.  This is used to determine if the data needs to be
+        masked or not.
+
+        This method ensures the ss is available locally, so that subsequent
+        processes that need it do not have to pull it from object store.
+
+        :return: None
+        """
+        ostore = self.connect_ostore()
+        LOGGER.info("pulling data classification spreadsheet from object store")
+        ostore.get_data_classification_ss()
+
     def get_tables(self) -> list[str]:
         """
         Get table list from database.
@@ -219,7 +237,7 @@ class Utility:
                 sock.settimeout(2)
                 sock.connect(("localhost", local_port))
                 sock_success = True
-            except OSError:  # noqa: PERF203
+            except OSError:
                 LOGGER.exception("port forward not available...")
                 time.sleep(1)
                 retry += 1
@@ -302,7 +320,8 @@ class Utility:
             msg = (
                 "searching for secrets that match the pattern "
                 f"{db_filter_string} returned more than one pod, narrow the "
-                "search pattern so only one pod is returned."
+                "search pattern so only one pod is returned.  Secrets found "
+                f"include: {secret_names}"
             )
             LOGGER.exception(msg)
             raise IndexError(msg)
@@ -324,19 +343,25 @@ class Utility:
         ).decode("utf-8")
         return db_conn_params
 
-    def run_extract(self, *, refresh: bool) -> None:
+    def run_extract(self, *, refresh: bool, single_table: str | None) -> None:
         """
         Run the extract process.
         """
-
+        # data classification spreadsheet is used to determine what data can be
+        # pulled at a column level.
+        self.pull_data_classifications()
         self.make_dirs()
 
-        # gets the table list from openshift database
-        tables_to_export = self.get_tables_for_extract()
+        # gets the table list from database
+        if single_table is not None:
+            tables_to_export = [single_table]
+        else:
+            tables_to_export = self.get_tables_for_extract()
         LOGGER.debug("tables to export: %s", tables_to_export)
 
         ostore = self.connect_ostore()
 
+        # connect to database
         if self.db_type == constants.DBType.ORA:
             # if oracle then do these things...
             ora_params = self.env_obj.get_ora_db_env_constants()
@@ -358,8 +383,13 @@ class Utility:
         for table in tables_to_export:
             LOGGER.info("Exporting table %s", table)
             # skip the forest cover geometry table, for now
-            tables_2_skip = ["TIMBER_MARK", "HARVESTING_AUTHORITY"]
-            # tables_2_skip = ["FOREST_COVER_GEOMETRY"]
+            # commonly skipped tables:
+            # FOREST_COVER_GEOMETRY
+            # STOCKING_STANDARD_GEOMETRY
+            # TIMBER_MARK
+            # HARVESTING_AUTHORITY
+            tables_2_skip = []
+            # leeaving
             if table.upper() in tables_2_skip:
                 # FOREST_COVER_GEOMETRY - requires a tweak to address sdo
                 #                         geometry
@@ -401,34 +431,40 @@ class Utility:
                 continue
             # the remote file either does not exist, or the refresh flag is set
             # to true, re-export the file and replace the local and remote data
-            else:
-                LOGGER.info(
-                    "Export file %s does not exist in object store, exporting",
-                    ostore_export_file,
-                )
+            LOGGER.info(
+                "Export file %s does not exist in object store, exporting",
+                ostore_export_file,
+            )
 
-                file_created = db_connection.extract_data(
-                    table,
-                    local_export_file,
-                    overwrite=refresh,
-                )
+            file_created = db_connection.extract_data(
+                table,
+                local_export_file,
+                overwrite=refresh,
+            )
 
-                if file_created:
-                    # push the file to object store, if a new file has been
-                    # created
-                    ostore.put_data_files(
-                        [table],
-                        self.env_obj.current_env,
-                        self.db_type,
-                    )
-                    LOGGER.debug("pausing for 5 seconds")
-                    time.sleep(5)
+            if file_created:
+                # push the file to object store, if a new file has been
+                # created
+                ostore.put_data_files(
+                    [table],
+                    self.env_obj.current_env,
+                    self.db_type,
+                )
+                LOGGER.debug("pausing for 5 seconds")
+                time.sleep(5)
         if self.db_type == constants.DBType.OC_POSTGRES:
             self.kube_client.close_port_forward()
 
-    def run_injest(self, *, purge: bool) -> None:
+    def run_injest(self, *, purge: bool, refreshdb: bool) -> None:
         """
-        Run the ingest process.
+        Load data cached in object store to the database.
+
+        :param purge: if true will delete all local cached data files and will
+            re-pull that data from object storage.
+        :type purge: bool
+        :param refreshdb: If true will truncate all the tables that are to be
+            loaded, otherwise will only load empty tables.
+        :type refreshdb: bool
         """
         datadir = self.app_paths.get_data_dir()
         if purge and datadir.exists():
@@ -449,30 +485,40 @@ class Utility:
         ostore = self.connect_ostore()
         dcr = docker_parser.ReadDockerCompose()
 
+        # getting connection params from the env and then creating db connection
+        # to local docker container oracle db where the data is being loaded.
         if self.db_type == constants.DBType.ORA:
             local_db_params = self.env_obj.get_local_ora_db_env_constants()
 
             local_db_params.schema_to_sync = self.env_obj.get_schema_to_sync()
             local_docker_db = oradb_lib.OracleDatabase(
-                local_db_params, app_paths=self.app_paths
+                local_db_params,
+                app_paths=self.app_paths,
             )
 
         elif self.db_type == constants.DBType.OC_POSTGRES:
             local_db_params = dcr.get_spar_conn_params()
             local_docker_db = postgresdb_lib.PostgresDatabase(local_db_params)
 
+        # only gets files if they don't exist locally.  If purge is set then the
+        # local cache will have been emptied before code gets here.
         ostore.get_data_files(
             tables_to_import,
             self.env_obj.current_env,
             self.db_type,
         )
 
-        # delete the database data... this always happens for ingest
-        local_docker_db.purge_data(table_list=tables_to_import, cascade=True)
+        # delete the database data. Also handled downstream... could be removed
+        # and only handled here.
+        if refreshdb:
+            local_docker_db.purge_data(
+                table_list=tables_to_import,
+                cascade=True,
+            )
         datadir = self.app_paths.get_data_dir()
         local_docker_db.load_data_retry(
             data_dir=datadir,
             table_list=tables_to_import,
             env_str=self.env_obj.current_env,
-            purge=purge,
+            refreshdb=refreshdb,
         )

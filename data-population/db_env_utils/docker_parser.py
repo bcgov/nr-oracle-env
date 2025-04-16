@@ -116,7 +116,7 @@ class ReadDockerCompose:
                 docker_comp_file_path,
             )
 
-        LOGGER.info(f"Using docker-compose file: {docker_comp_file_path}")
+        LOGGER.info("Using docker-compose file: %s", docker_comp_file_path)
         return docker_comp_file_path
 
     def get_local_postgres_conn_params(self) -> env_config.ConnectionParameters:
@@ -165,7 +165,7 @@ class ReadDockerCompose:
         dcr_user_password = self.docker_comp["x-oracle-vars"][
             "APP_USER_PASSWORD"
         ]
-        dcr_port = self.docker_comp["services"]["oracle-spar"]["ports"][
+        dcr_port = self.docker_comp["services"]["oracle-test"]["ports"][
             0
         ].split(
             ":",

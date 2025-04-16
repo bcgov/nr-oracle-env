@@ -1,8 +1,0 @@
-# env vars required to run the data extract
-ORACLE_USER - user to connect to the database with
-ORACLE_PASSWORD - password for that user
-ORACLE_HOST - host for the database
-ORACLE_PORT - port for the database
-ORACLE_SERVICE - database service
-
-

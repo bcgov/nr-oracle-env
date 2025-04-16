@@ -9,7 +9,6 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-import app_paths
 import boto3
 import botocore.exceptions
 import constants
@@ -18,6 +17,7 @@ from boto3.s3.transfer import TransferConfig
 if TYPE_CHECKING:
     import pathlib
 
+    import app_paths
     import env_config
 
 LOGGER = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ class OStore:
 
     def delete_data_file(self, object_store_file: pathlib.Path) -> None:
         """
-        delete object that matches the supplied name.
+        Delete object that matches the supplied name.
 
         If an object with the name `object_store_file` exists it will be deleted
 
@@ -218,6 +218,14 @@ class OStore:
         return versions
 
     def calculate_sha256(self, file_path: pathlib.Path) -> str:
+        """
+        Calculate the sha256 checksum of a file.
+
+        :param file_path: path to the file
+        :type file_path: pathlib.Path
+        :return: the sha256 checksum of the file as a hex string.
+        :rtype: str
+        """
         sha256_hash = hashlib.sha256()
         with file_path.open("rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
@@ -264,7 +272,8 @@ class OStore:
                 object_name=str(remote_data_file),
             ):
                 LOGGER.debug(
-                    "delete pre-existing remote file: %s", remote_data_file
+                    "delete pre-existing remote file: %s",
+                    remote_data_file,
                 )
                 self.delete_data_file(remote_data_file)
                 # pull the files from object store.
@@ -275,9 +284,10 @@ class OStore:
                 self.conn_params.bucket,
             )
 
-            # when the file gets deleted for some reason was generating a checksum
-            # error when trying to re-upload it... Only way to fix was to
-            # calculate the checksum locally and send it along with the upload.
+            # when the file gets deleted for some reason was generating a
+            # checksum error when trying to re-upload it... Only way to fix was
+            # to calculate the checksum locally and send it along with the
+            # upload.
             checksum = self.calculate_sha256(file_path=local_data_file)
             LOGGER.debug("checksum: %s", checksum)
 
@@ -287,8 +297,9 @@ class OStore:
                 multipart_chunksize=1024 * 25,
                 use_threads=True,
             )
-            # note... probably don't need a lot of this code.. created it to address
-            # incompatibility between boto3 and our object store impleemntation.
+            # note... probably don't need a lot of this code.. created it to
+            # address incompatibility between boto3 and our object store
+            # implemntation.
 
             retry = 1
             retry_max = 3
@@ -298,22 +309,46 @@ class OStore:
                         str(local_data_file),
                         self.conn_params.bucket,
                         str(remote_data_file),
-                        # ExtraArgs={"ChecksumSHA256": checksum},
                         Config=config,
                     )
                     LOGGER.debug(
-                        "response from object store upload: %s", response
+                        "response from object store upload: %s",
+                        response,
                     )
                     break
                 except (
                     botocore.exceptions.ClientError,
                     boto3.exceptions.S3UploadFailedError,
-                ) as e:
+                ):
                     LOGGER.exception(
-                        "Error uploading file: %s, %s", local_data_file, e
+                        "Error uploading file: %s",
+                        local_data_file,
                     )
                     LOGGER.info("retrying upload... %s of %s", retry, retry_max)
                     if retry > retry_max:
-                        raise e
+                        LOGGER.exception("retries %s exceeded", retry_max)
+                        raise
                     retry += 1
                     time.sleep(1)
+
+    def get_data_classification_ss(self) -> pathlib.Path:
+        """
+        Get the path to the data classification file.
+
+        :return: path to the data classification file
+        :rtype: pathlib.Path
+        """
+        local_path = self.app_paths.get_data_classification_local_path()
+        ostore_path = self.app_paths.get_data_classification_ostore_path()
+
+        if not local_path.exists():
+            # pull the files from object store.
+            # with Path("f1.py").open("wb") as fp:
+            with local_path.open("wb") as f:
+                # with open(local_data_file, "wb") as f:
+                self.s3_client.download_fileobj(
+                    self.conn_params.bucket,
+                    str(ostore_path),
+                    f,
+                )
+        return self.app_paths.get_data_classification_local_path()

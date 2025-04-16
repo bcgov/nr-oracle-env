@@ -65,28 +65,39 @@ LOGGER = logging.getLogger(__name__)
 @click.option(
     "--purge",
     is_flag=True,
-    help="Purge the database and reload with fresh data",
+    help="if set, deletes local data and re-pulls from ostore",
 )
-def main(dest, environment, purge):
+@click.option(
+    "--refreshdb",
+    is_flag=True,
+    help="if set true all tables will be truncated in db before load",
+)
+def main(dest: str, environment: str, purge: bool, refreshdb: bool) -> None:  # noqa: FBT001
     """
     Load the data from object store cache to local oracle database.
 
     \b
-    dest: (The destination local database that is being populated)
-        - SPAR - Load cached SPAR data into the SPAR database.
-        - ORA  - Load cached ORA data into the ORA database.
+    destintation database :
+        * SPAR - Load cached SPAR data into the SPAR database.
+        * ORA  - Load cached ORA data into the ORA database.
+
 
     \b
     Environment:
         * TEST - Load data that was extracted from the test environment.
         * PROD - Load data that was extracted from the production environment.
 
-    \b
     --purge: (Optional) set this flag if you want to ensure the data that is
              cached in object store is being used for the load.  Otherwise
              will re-use any locally cached data from previous runs.
-    """
-    global LOGGER
+
+
+    --refreshdb: (Optional) set this flag if you want to re-load all the data
+            in the database.  If set all tables will be truncated before the
+            load is attempted.  If not set only empty tables will be loaded,
+            ie tables with no rows.
+    """  # noqa: D301
+    global LOGGER  # noqa: PLW0603
     dest = dest.upper()  # Ensure uppercase for consistency
     environment = environment.upper()  # Ensure uppercase for consistency
     click.echo(f"Selected environment: {environment}")
@@ -100,15 +111,27 @@ def main(dest, environment, purge):
 
     if purge:
         click.echo(
-            "Purge flag is enabled. Will remove local files, and then pull new ones from ostore..."
+            "Purge flag is enabled. Will remove local files, and then pull "
+            "new ones from ostore...",
         )
     else:
         click.echo(
-            "Purge flag is not enabled... Only load data from local files."
+            "Purge flag is not enabled... Only load data from local files.",
+        )
+    if refreshdb:
+        click.echo(
+            "refreshdb flag is enabled. All tables will truncated before load",
+        )
+    else:
+        click.echo(
+            "refreshdb flag is not enabled... Only empty tables will be loaded",
         )
 
-    LOGGER.debug("purge: %s %s", purge, type(purge))
-    common_util.run_injest(purge=purge)
+    LOGGER.info("purge: %s %s", purge, type(purge))
+    LOGGER.info("refreshdb: %s, %s", refreshdb, type(refreshdb))
+    LOGGER.info("populating the local oracle db")
+    common_util.run_injest(purge=purge, refreshdb=refreshdb)
+    LOGGER.info("Injest complete")
 
 
 if __name__ == "__main__":

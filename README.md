@@ -16,107 +16,118 @@ difficult and time consuming.
 The objective of this repo is to facilitate the creation of local oracle databases to
 support development activities.
 
-# Getting the database up and running
+# Components at play
 
-## Current Pre-requisites
+This repo includes the following components:
+1. **Structural Oracle Database** An oracle database that is populated from a datapump file that contains all
+    the database stucture
+1. **Test Oracle Database** An oracle database that can be used to verify the
+    migrations, and data loads
+1. **Data Dependency Tool** Used to identify database dependencies, and generate migration
+    files from the dependencies
+1. **Data Population Tool** Having identified the subset of tables from the struct
+    database, this tool is used to extract the data from on prem databases, and
+    then load that data to the Test Oracle Database.
 
-1. you have a datapump export of an oracle database
+Subsequent Sections will dive into each of these components in more detail.
 
-## Bring up the database.
+# A) Structural Oracle Database
 
-look for this line in the docker-compose.yml file:
+In summary this database will not contain any data.  Instead its a structural
+database that contains all the database objects that exist in the prod THE
+database.
+
+### TL;DR
+
+1. get the datapump file, and copy it to `./data/dbp01-31-10-24.dmp`
+2. first time load of database `docker compose up oracle-dp-import`  (this only needs to take place once)
+3. starting database after load has been completed ``docker compose up oracle`
+
+[more info/details...](docs/struct_db.md)
+
+# B) Dependency Analysis / Migration Generation
+
+This is a tool that given a seed object, will follow the foreign key dependencies
+and generate a dependency tree for any given object.  The tool can then also
+be used to generate migration files for all the objects required to maintain
+referential integrity given the seed/start table that specified.
+
+### TL:DR
+
+The following will:
+* navigate to the data-query-tool
+* load environment variables from the env_sample file
+* identify the dependencies of the `SEEDLOT` table
+* generate migration files in the `my_migrations` folder which will all have
+    the prefix of `seedlot_migs`
+     a migration file for all the dependent tables of the table `SEEDLOT`.
+If you don't have uv installed... `pip install uv`
 
 ```
-    volumes:
-        ...
-        - ./data/dbp01-31-10-24.dmp:/dpdata/dump_file.dmp # add the dump file to
-        the container
-        ...
+cd data-query-tool; \
+set -a; source env_sample; set +a; \
+uv run python main.py create-migrations \
+--schema THE \
+--seed-object SEEDLOT \
+--migration-name seedlot_migs
 ```
 
-and modify if required so that the path `./data/dbp01-31-10-24.dmp` refers to
-the datapump export file that you would like to have loaded.
+[more info on data query tool...](docs/data_query_tool.md)
 
-finally bring up the database and start the datapump import:
+# C) Load the migrations to a local TEST database
 
-`docker compose up oracle-dp-import`
+### TL:DR
 
-Running this step takes about 20 minutes.
+Assuming you generated the migration files in the `data/migrations` folder, you
+should be able to spin up the test database and run the migrations with the
+following:
 
-Once the database is up, it will create a docker compose volume named:
-`oracle-data-struct`  Don't delete this volume as it can be re-used significantly
-reducing the time required to bring up the database.
+`docker compose up oracle-migrations-test`
 
-## Connecting to the database
+# D) Data Extraction
 
-### as sysdba
+The data extraction process queries the test database created in the previous
+step, to identify which objects need to be extracted from an on prem database.
 
-`sqlplus system/default@localhost:1522/DBDOCK_STRUCT_01`
+The idea is this step only needs to be performed once.  It will dump data files
+to an object store bucket where they can be retrieved later.  The purpose is
+to create "just enough oracle" structure to test things that we may want to do
+with or against the on prem oracle databases without any risk of "breaking"
+anything.
 
-### as user
+Extracting the data requries some configuration and therefor this is no "tl;dr"
+section for this step.
 
-`sqlplus the/default@localhost:1522/DBDOCK_STRUCT_01`
+[Detailed docs on data extraction process](docs/data_extraction.md)
 
-# Create Database Migrations From seed Table
+# E) Data Load
 
-This script will recieve an input (seed table), and will query for foreign key
-dependencies recursively as well as any dependencies identified through triggers
-and create a migration file that will create the seed table and all of that
-tables dependencies.
+This step will load the data, that was extracted in the previous step and
+cached in object storage, to the test oracle database (created in step C).  This
+is essentially the final step allowing teams to create a "just enough oracle"
+database.
 
-## Retrieve Database Dependencies
+### TL:DR
 
-### Install dependencies
+* populate the object store environment variables
+* load the data
 
-Install uv
+`uv run python db_env_utils/main_ingest.py ORA PROD`
 
-`pip install uv`
+[Details on the data load script/process](docs/data_load.md)
 
-### Run the script
 
-1. Start the database [see... Getting the database up and running](#getting-the-database-up-and-running)
 
-2. Run the script to identify database dependencies of the seed table (optional)
 
-    This step is not required, however it allows you see and / or verify the
-    dependencies that the script has discovered before you create the acutal
-    migration files.
 
-    In the example below we are retrieving the dependencies for the 'SEEDLOT'
-    table.
 
-    `uv run main.py show-deps --seed-object SEEDLOT`
 
-    Creates a text based view of the SEEDLOT dependencies.  Sample of the
-    output:
 
-    ```
-    TABLE: THE.SEEDLOT
-    --------- dependencies ---------
-        TABLE: the.client_location
-        --------- dependencies ---------
-            TABLE: the.forest_client
-            --------- dependencies ---------
-                TABLE: the.client_type_company_xref
-                --------- dependencies ---------
-                    TABLE: the.registry_company_type_code
-                    TABLE: the.client_type_code
-                TABLE: the.client_id_type_code
-             ...
-    ```
 
-3. Create the migration that is described by the dependencies:
 
-    ```
-    uv run main.py \
-        create-migrations \
-        --migration-folder ./data \
-        --migration-name seedlot_table_migration \
-        --schema THE \
-        --seed-table SEEDLOT
-    ```
 
-    This will create a file called `V1.0.0__seedlot_table_migration.sql` in the
-    folder `./data`.
 
-[dependency script docs](docs/dependency_tool_cli.md)
+
+
+
+

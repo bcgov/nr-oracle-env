@@ -3,7 +3,6 @@ Starting to move any path methods to this module.
 """
 
 import logging
-import os
 import pathlib
 import tempfile
 
@@ -37,18 +36,19 @@ class AppPaths:
 
         """
         tmpdir = self.get_temp_dir()
-        fd, tmp_parquet_file = tempfile.mkstemp(
+        fd, tmp_parquet_file_str = tempfile.mkstemp(
             suffix=".parquet",
             dir=tmpdir,
             prefix=prefix,
         )
-        if os.path.exists(tmp_parquet_file):
-            os.remove(tmp_parquet_file)
+        tmp_parquet_file = pathlib.Path(tmp_parquet_file_str)
+        if tmp_parquet_file.exists():
+            tmp_parquet_file.unlink()
         LOGGER.debug("tmp_parquet_file: %s", tmp_parquet_file)
         LOGGER.debug("fd: %s %s", fd, type(fd))
-        return pathlib.Path(tmp_parquet_file)
+        return tmp_parquet_file
 
-    def get_data_dir(self, *, create=True) -> pathlib.Path:
+    def get_data_dir(self, *, create: bool = True) -> pathlib.Path:
         """
         Generate a path to the data directory.
 
@@ -93,6 +93,22 @@ class AppPaths:
             tmp_dir.mkdir(exist_ok=True)
         return tmp_dir
 
+    def get_temp_duckdb_path(self) -> pathlib.Path:
+        """
+        Return path to temporary duckdb database file.
+
+        Due to limitations with geoparquet, that require the entire database to
+        be read into memory before writing, using a workaround that first dumps
+        data to duckdb, then from duckdb write the geoparquet file.
+
+        :return: path to the duck db database file
+        :rtype: pathlib.Path
+        """
+        tmpdir = self.get_temp_dir(create=True)
+        duck_db_path = tmpdir / constants.DUCKDB_TMP_FILE
+        LOGGER.debug("duckdb path: %s", duck_db_path)
+        return duck_db_path
+
     def get_parquet_file_path(
         self,
         table: str,
@@ -118,6 +134,34 @@ class AppPaths:
             parquet_file_name,
         )
         LOGGER.debug("parquet file name: %s", return_path)
+        return return_path
+
+    def get_duckdb_file_path(
+        self,
+        table: str,
+        env_str: str,
+        db_type: constants.DBType,
+    ) -> pathlib.Path:
+        """
+        Return path to duckdb file that corresponds with a table.
+
+        :param table: name of the table.
+        :type table: str
+        :param env_str: the environment string, valid values DEV/TEST/PROD
+        :type env_str: str
+        :param db_type: database type, either ORA or OC_POSTGRES
+        :type db_type: constants.DBType
+        :return: a path to the duckdb file that corresponds with the table name.
+        :rtype: pathlib.Path
+        """
+        duckdb_file_name = f"{table}.{constants.DUCK_DB_SUFFIX}"
+        return_path = pathlib.Path(
+            constants.DATA_DIR,
+            env_str,
+            db_type.name,
+            duckdb_file_name,
+        )
+        LOGGER.debug("duckdb file name: %s", return_path)
         return return_path
 
     def get_sql_dump_file_path(
@@ -171,7 +215,7 @@ class AppPaths:
         :rtype: pathlib.Path
         """
         if db_type == constants.DBType.ORA:
-            suffix = constants.PARQUET_SUFFIX
+            suffix = constants.DUCK_DB_SUFFIX
         elif db_type == constants.DBType.OC_POSTGRES:
             suffix = constants.SQL_DUMP_SUFFIX
         parquet_file_name = f"{table}.{suffix}"
@@ -198,7 +242,7 @@ class AppPaths:
         """
         return_table = None
         if db_type == constants.DBType.ORA:
-            return_table = self.get_parquet_file_path(table, env_str, db_type)
+            return_table = self.get_duckdb_file_path(table, env_str, db_type)
         elif db_type == constants.DBType.OC_POSTGRES:
             return_table = self.get_sql_dump_file_path(table, env_str, db_type)
         return return_table
@@ -247,3 +291,26 @@ class AppPaths:
         )
         LOGGER.debug("object store data path: %s", full_path)
         return full_path
+
+    def get_data_classification_local_path(self) -> pathlib.Path:
+        """
+        Get the path to the data classification file.
+
+        :return: path to the data classification file
+        :rtype: pathlib.Path
+        """
+        local_path = self.get_temp_dir() / "data_classification.xlsx"
+        LOGGER.debug("data classification local path: %s", local_path)
+        return local_path
+
+    def get_data_classification_ostore_path(self) -> pathlib.Path:
+        """
+        Get the path to the data classification file in object storage.
+
+        :return: path to the data classification file in object storage
+        :rtype: pathlib.Path
+        """
+
+        ostore_path = "data_classification/CLIENT ECAS GAS2 ILCR ISP.xlsx"
+        LOGGER.debug("data classification ostore path: %s", ostore_path)
+        return ostore_path

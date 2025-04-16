@@ -21,16 +21,21 @@ def test_get_ora_conn_params() -> None:
     assert ora_params.username.upper() == "THE"
     assert ora_params.password == "default"
     assert ora_params.host == "localhost"
-    assert ora_params.port == "1521"
-    assert ora_params.service_name == "DBDOCK_01"
+    assert ora_params.port == "1523"
+    assert ora_params.service_name == "DBDOCK_STRUCT_01"
 
 
 def test_get_spar_conn_params() -> None:
     """
     Verify docker compose parameters for local spar docker database.
     """
+    # this is failing... known as when moved repo here did not need the postgres
+    # database yet.  Keeping here as at some point will circle back to
+    # enable a local version of a modernized apps postgres database.
     dp = docker_parser.ReadDockerCompose()
-    spar_params = dp.get_spar_conn_params()
+    spar_params = dp.get_local_postgres_conn_params()
+
+    LOGGER.debug("spar_params: %s", spar_params)
 
     assert spar_params.username == "postgres"
     assert spar_params.password == "default"

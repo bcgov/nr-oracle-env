@@ -7,7 +7,9 @@ accomodate all the various database objects that might need to be reported out
 on.
 """
 
+import json
 import logging
+import pathlib
 import typing
 from typing import Optional
 
@@ -172,6 +174,7 @@ class Oracle:
                 referenced_name <> :object_name -- don't want SELF reference
                 AND NOT
                 REFERENCED_OWNER = 'SYS' AND NOT
+                REFERENCED_OWNER = 'MDSYS' AND NOT
                 ( REFERENCED_OWNER = 'PUBLIC' AND
                     REFERENCED_TYPE = 'SYNONYM' ) AND NOT
                 ( REFERENCED_OWNER = 'MDSYS' AND
@@ -841,6 +844,30 @@ class Oracle:
                 ddl=object_ddls,
             )
         return ddl_cache
+
+    def load_json_deps(
+        self, json_file: pathlib.Path
+    ) -> types.DBDependencyMapping:
+        struct = None
+        with json_file.open("r") as fh:
+            struct = json.load(fh)
+            dependency = self.load_db_dep(struct)
+        return dependency
+
+    def load_db_dep(self, struct: dict):
+        new_dep = types.DBDependencyMapping(
+            object_type=types.ObjectType[struct["object_type"]],
+            object_name=struct["object_name"],
+            object_schema=struct["object_schema"],
+            dependency_list=[],
+        )
+        if struct["dependency_list"]:
+            dep_list = []
+            for dep in struct["dependency_list"]:
+                dep_obj = self.load_db_dep(dep)
+                dep_list.append(dep_obj)
+            new_dep.dependency_list = dep_list
+        return new_dep
 
 
 class ProcessedObjects:

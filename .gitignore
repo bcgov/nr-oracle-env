@@ -183,3 +183,10 @@ junk.py
 data-population/db_env_utils/junk.py
 data-population/junk_simple_load.py
 project_specific/**
+data-population/utf8_issues.py
+junk.duckdb
+data-population/tests/test_data/age_class_code.ddb
+data-population/tests/test_data/forest_cover_geometry.ddb
+data-population/db_env_utils/test_script.py
+data-population/tests/test_data/application.ddb
+data-population/tests/test_data/application.csv

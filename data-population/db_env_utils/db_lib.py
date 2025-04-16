@@ -4,7 +4,6 @@ Abstract base class for database operations.
 
 from __future__ import annotations
 
-import datetime
 import logging
 import os
 import pathlib
@@ -12,8 +11,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import app_paths
 import constants
+import data_types
 import pandas as pd
 import psycopg2
 import psycopg2.sql
@@ -23,26 +22,11 @@ from env_config import ConnectionParameters
 from oracledb.exceptions import DatabaseError as OracleDatabaseError
 
 if TYPE_CHECKING:
+    import app_paths
     import oradb_lib
 
+
 LOGGER = logging.getLogger(__name__)
-
-
-@dataclass
-class TableConstraints:
-    """
-    Data class for storing constraints.
-
-    Model / types for storing database constraints when queried from the
-    database.
-    """
-
-    constraint_name: str
-    table_name: str
-    column_names: list[str]
-    r_constraint_name: str
-    referenced_table: str
-    referenced_columns: list[str]
 
 
 @dataclass
@@ -127,7 +111,7 @@ class DB(ABC):
         self.max_retries = 10
 
         # rows to read from the database at a time before write operation
-        self.chunk_size = 25000
+        self.chunk_size = 10000
 
     @abstractmethod
     def get_connection(self) -> None:
@@ -139,6 +123,24 @@ class DB(ABC):
         :raises NotImplementedError: _description_
         """
         raise NotImplementedError
+
+    def get_row_count(self, table_name: str) -> int:
+        """
+        Return the number of rows that exist in the table.
+
+        :param table_name: name of table to be queried
+        :type table_name: str
+        :return: number of rows in the table
+        :rtype: int
+        """
+        query = f"select count(*) from {self.schema_2_sync}.{table_name}"  # noqa: S608
+        cur = self.connection.cursor()
+        cur.execute(query)
+        record = cur.fetchone()
+        cur.close()
+        row_cnt = record[0]
+        LOGGER.debug("table %s row count: %s", table_name, row_cnt)
+        return row_cnt
 
     @abstractmethod
     def populate_db_type(self) -> None:
@@ -197,7 +199,7 @@ class DB(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_fk_constraints(self) -> list[oradb_lib.TableConstraints]:
+    def get_fk_constraints(self) -> list[data_types.TableConstraints]:
         """
         Return the foreign key constraints for the schema.
 
@@ -230,7 +232,7 @@ class DB(ABC):
     @abstractmethod
     def disable_fk_constraints(
         self,
-        constraint_list: list[TableConstraints],
+        constraint_list: list[data_types.TableConstraints],
     ) -> None:
         """
         Disable foreign key constraints.
@@ -302,18 +304,20 @@ class DB(ABC):
         """
 
         column_names = [column.name for column in table.columns]
+        # type_mapping = {
+        #     str: pyarrow.string(),
+        #     int: pyarrow.int64(),
+        #     float: pyarrow.float64(),
+        #     decimal.Decimal: pyarrow.float64(),
+        #     datetime.datetime: pyarrow.timestamp("s"),
+        #     bytes: pyarrow.binary(),
+        # }
         column_types = [
-            pyarrow.string()
-            if column.type.python_type == str
-            else pyarrow.int64()
-            if column.type.python_type == int
-            else pyarrow.float64()
-            if column.type.python_type == float
-            else pyarrow.timestamp("s")
-            if column.type.python_type == datetime.datetime
-            else None
+            constants.PYTHON_PYARROW_TYPE_MAP.get(column.type.python_type, None)
             for column in table.columns
         ]
+
+        LOGGER.debug("column types: %s", column_types)
         LOGGER.debug("column names: %s", column_names)
 
         # Create a PyArrow schema from the column names and data types
@@ -324,13 +328,31 @@ class DB(ABC):
                 if typ is not None
             ]
         )
+
+        # verify
+        pyarrow_columns = set(schema.names)
+        if pyarrow_columns != set(column_names):
+            # find missing columns
+            missing_columns = set(column_names) - pyarrow_columns
+
+            for missing_column_name in missing_columns:
+                column = table.c[missing_column_name]
+                LOGGER.error(
+                    "no type defined for column: %s of type %s",
+                    missing_column_name,
+                    column.type.python_type,
+                )
+
+            msg = f"Missing data type for columns: {missing_columns}"
+            raise ValueError(msg)
+
         LOGGER.debug("schema: %s", schema)
         return schema
 
     @abstractmethod
     def enable_constraints(
         self,
-        constraint_list: list[TableConstraints],
+        constraint_list: list[data_types.TableConstraints],
     ) -> None:
         """
         Enable all foreign key constraints.
@@ -342,12 +364,59 @@ class DB(ABC):
         """
         raise NotImplementedError
 
+    # @abstractmethod
+    # def has_masked_data(self, table_name: str) -> bool:
+    #     """
+    #     Check if the table has masked data.
+
+    #     :param table_name: the name of the table to check for masked data
+    #     :type table_name: str
+    #     :return: True if the table has masked data, False if it does not
+    #     :rtype: bool
+    #     """
+    #     raise NotImplementedError
+
+    def mask_select_obj(
+        self, table_obj: sqlalchemy.Table
+    ) -> sqlalchemy.sql.selectable.Select:
+        """
+        Return a select statement that will mask sensitive data.
+
+        Sensitive data is defined in the constants.DATA_TO_MASK list.  This
+        information is read to identify columns that need to be masked.  The
+        select object that extracts this data from the database will then use
+        this information to mask the data.
+
+        :param table_obj: input sql alchemy table object that contains columns
+            that need to be masked.
+        :type table_obj: sqlalchemy.Table
+        :return: a select statement that will nullify any masked data.  The
+            mask values will be applied on load.
+        :rtype: sqlalchemy.sql.selectable.Select
+        """
+        # select_obj = sqlalchemy.select(table_obj)
+        columns_to_mask = [
+            mask_meta_data.column.upper()
+            for mask_meta_data in constants.DATA_TO_MASK
+            if mask_meta_data.table_name.upper() == table_obj.name.upper()
+        ]
+        select_stmt_columns = []
+        for col in table_obj.columns:
+            if col.name.upper() in columns_to_mask:
+                select_stmt_columns.append(sqlalchemy.null().label(col.name))
+            else:
+                select_stmt_columns.append(col)
+        select_stmt = table_obj.select().with_only_columns(select_stmt_columns)
+        return select_stmt
+
     def extract_data(
         self,
         table: str,
         export_file: pathlib.Path,
         *,
         overwrite: bool = False,
+        chunk_size=None,
+        max_records=0,
     ) -> bool:
         """
         Extract a table from the database to a parquet file.
@@ -365,14 +434,23 @@ class DB(ABC):
         LOGGER.debug("exporting table %s to %s", table, export_file)
         file_created = False
 
+        # pull the default chunk size if it hasn't been overridden.
+        if chunk_size is None:
+            chunk_size = self.chunk_size
+
         # check that the directory for export file exists
         export_file.parent.mkdir(parents=True, exist_ok=True)
         LOGGER.debug("export file: %s", export_file)
         if not export_file.exists() or overwrite:
+            self.get_sqlalchemy_engine()
             table_obj = self.get_table_object(table)
             pyarrow_schema = self.get_pyarrow_schema(table_obj)
 
             select_obj = sqlalchemy.select(table_obj)
+            if self.has_masked_data(table_name=table):
+                select_obj = self.mask_select_obj(table_obj)
+
+            LOGGER.debug("select object: %s", select_obj)
 
             if export_file.exists():
                 # delete the local file if it exists as only gets here if
@@ -380,7 +458,6 @@ class DB(ABC):
                 export_file.unlink()
             LOGGER.debug("data_query_sql: %s", select_obj)
             LOGGER.debug("reading the %s", table)
-            self.get_sqlalchemy_engine()
 
             itercnt = 1
 
@@ -394,12 +471,14 @@ class DB(ABC):
             for chunk in pd.read_sql(
                 select_obj,
                 self.sql_alchemy_engine,
-                chunksize=self.chunk_size,
+                chunksize=chunk_size,
             ):
                 LOGGER.debug("writing chunk %s", itercnt * self.chunk_size)
                 table = pyarrow.Table.from_pandas(chunk, schema=pyarrow_schema)
 
                 writer.write_table(table)
+                if (max_records) and chunk_size * itercnt > max_records:
+                    break
                 itercnt += 1
             writer.close()
 
@@ -445,7 +524,7 @@ class DB(ABC):
         table: str,
         import_file: pathlib.Path,
         *,
-        purge: bool = False,
+        refreshdb: bool = False,
     ) -> None:
         """
         Load the data from the file into the table.
@@ -457,38 +536,51 @@ class DB(ABC):
         :type table: str
         :param import_file: the file to read the data from
         :type import_file: str
-        :param purge: if True, delete the data from the table before loading.
+        :param refreshdb: if True then truncate the tables before attempting
+            load.  Otherwise only load if table is empty.
         :type purge: bool
         """
         # debugging to view the data before it gets loaded
         LOGGER.debug("input parquet file to load: %s", import_file)
-        LOGGER.debug("reading parquet file, %s", import_file)
-        pandas_df = pd.read_parquet(import_file)
-        LOGGER.debug("done loading dataframe.")
-
         LOGGER.debug("table: %s", table)
 
         self.get_sqlalchemy_engine()
-        if purge:
+        if refreshdb:
             self.truncate_table(table.lower())
         LOGGER.debug("loading data to table: %s", table)
         if self.db_type == constants.DBType.OC_POSTGRES:
             method = "multi"
         elif self.db_type == constants.DBType.ORA:
             method = None
-        with (
-            self.sql_alchemy_engine.connect() as connection,
-            connection.begin(),
-        ):
-            pandas_df.to_sql(
-                table.lower(),
-                self.sql_alchemy_engine,
-                schema=self.schema_2_sync,
-                if_exists="append",
-                index=False,
-                method=method,
-                # encoding="utf-8",
-            )
+
+        # only load the table if it is empty
+        if not self.get_row_count(table_name=table):
+            with (
+                self.sql_alchemy_engine.connect() as connection,
+                connection.begin(),
+            ):
+                LOGGER.debug("reading parquet file, %s", import_file)
+                parquet_reader = pyarrow.parquet.ParquetFile(import_file)
+                iter_cnt = 1
+
+                for batch in parquet_reader.iter_batches(
+                    batch_size=self.chunk_size,
+                ):
+                    end_row_cnt = iter_cnt * self.chunk_size
+                    start_row_cnt = end_row_cnt - self.chunk_size
+                    LOGGER.debug(
+                        "writing rows from %s to %s", start_row_cnt, end_row_cnt
+                    )
+                    df = batch.to_pandas()
+                    df.to_sql(
+                        table.lower(),
+                        self.sql_alchemy_engine,
+                        schema=self.schema_2_sync,
+                        if_exists="append",
+                        index=False,
+                        method=method,
+                    )
+                    iter_cnt += 1
 
         # now verify data
         sql = "Select count(*) from {schema}.{table}"
@@ -500,6 +592,23 @@ class DB(ABC):
             LOGGER.error("no rows loaded to table %s", table)
         LOGGER.debug("rows loaded to table %s are:  %s", table, rows_loaded)
         cur.close()
+        self.connection.commit()
+
+    def check_utf8(self, value):
+        try:
+            if isinstance(value, str):
+                value.encode("utf-8")  # Try encoding the string as UTF-8
+            return False  # No issue
+        except UnicodeEncodeError:
+            return True  # Problematic value
+
+    def find_invalid_chars(self, value):
+        if isinstance(value, str):
+            try:
+                value.encode("utf-8")  # Try encoding
+                return None
+            except UnicodeEncodeError as e:
+                return f"Invalid char at {e.start}: {value[e.start : e.end]}"  # Show problem
 
     def load_data_retry(
         self,
@@ -509,6 +618,7 @@ class DB(ABC):
         retries: int = 1,
         *,
         purge: bool = False,
+        refreshdb: bool = False,
     ) -> None:
         """
         Load data defined in table_list.
@@ -539,6 +649,8 @@ class DB(ABC):
         :param purge: If set to true the script will truncate the table before
             it attempt a load, defaults to False
         :type purge: bool, optional
+        :param refreshdb: if set to true will truncate the tables before the
+            load starts. Otherwise only empty tables (0 rows) will be loaded.
         :raises sqlalchemy.exc.IntegrityError: If unable to resolve instegrity
             constraints the method will raise this error
         """
@@ -563,7 +675,7 @@ class DB(ABC):
 
             LOGGER.info("Importing table %s %s", spaces, table)
             try:
-                self.load_data(table, import_file, purge=purge)
+                self.load_data(table, import_file, refreshdb=refreshdb)
             except (
                 sqlalchemy.exc.IntegrityError,
                 OracleDatabaseError,
@@ -610,8 +722,6 @@ class DB(ABC):
         :rtype: int
         """
         query = "SELECT COUNT(*) FROM {schema}.{table}"
-
-        LOGGER.debug("record count query: %s", query)
         self.get_connection()
         cursor = self.connection.cursor()
         if self.db_type == constants.DBType.OC_POSTGRES:
