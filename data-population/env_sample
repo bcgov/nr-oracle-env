@@ -1,0 +1,41 @@
+# env vars required to run the data extract
+
+# ----- local oracle database -----
+ORACLE_HOST_LOCAL=localhost
+ORACLE_PORT_LOCAL=1523
+ORACLE_SERVICE_LOCAL=dbdock_test_01
+ORACLE_SYNC_USER_LOCAL=THE
+ORACLE_SYNC_PASSWORD_LOCAL=default
+ORACLE_SCHEMA_TO_SYNC_LOCAL=THE
+
+# ----- object store env variables -----
+#  directory for where the data is going to be located in the object store
+OBJECT_STORE_DATA_DIRECTORY=
+
+# parameters to connect to object store test env
+OBJECT_STORE_USER_TEST=
+OBJECT_STORE_SECRET_TEST=
+OBJECT_STORE_BUCKET_TEST=
+OBJECT_STORE_HOST_TEST=
+
+# parameters to connect to object store prod env
+OBJECT_STORE_USER_PROD=
+OBJECT_STORE_SECRET_PROD=
+OBJECT_STORE_BUCKET_PROD=
+OBJECT_STORE_HOST_PROD=
+
+# ----- database parameters -----
+
+ORACLE_HOST_TEST=
+ORACLE_PORT_TEST=
+ORACLE_SERVICE_TEST=
+ORACLE_USER_TEST=
+ORACLE_PASSWORD_TEST=
+ORACLE_SCHEMA_TO_SYNC_TEST=THE
+
+ORACLE_HOST_PROD=
+ORACLE_PORT_PROD=
+ORACLE_SERVICE_PROD=
+ORACLE_USER_PROD=
+ORACLE_PASSWORD_PROD=
+ORACLE_SCHEMA_TO_SYNC_PROD=THE
