@@ -2,7 +2,7 @@
 
 <img src="https://lh3.googleusercontent.com/pw/AP1GczOiFckwC6jkI7XcZEJlDDQpFH0xLF5jajiijcry_9f7sn0O_1HSWMW8SQLLvtjXV_UMiSDiB5MSh_up4jE3DaqUbPs-ucSNq4P3IkT0YMAlvwtsKH_T1YY3xQeG1LTniYcc4L5f16DlkFeQTuP9Hq_Gcw=w1306-h589-s-no-gm?authuser=0" width="700px">
 
-When Nivana was still making music, the paradigm for multiple application integration
+When Nirvana was still making music, the paradigm for multiple application integration
 was at the database level.  During this dark era, if one application required access
 to another applications data, it was usually accomplished by a database grant.
 
