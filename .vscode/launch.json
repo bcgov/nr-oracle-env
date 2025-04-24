@@ -52,16 +52,20 @@
             ]
         },
         {
-            "name": "main_create_migrations",
+            "name": "main_create_migrations_seedlot",
             "type": "debugpy",
             "redirectOutput": false ,
             "request": "launch",
             "program": "data-query-tool/main.py",
             "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/data-query-tool/.venv/bin/python",
             "args": [
                 "create-migrations",
-                "--seed-table",
-                "SEEDLOT"
+                "--seed-object",
+                "SEEDLOT",
+                "--migration-folder",
+                "project_specific/misc/junk"
             ]
         },
         {

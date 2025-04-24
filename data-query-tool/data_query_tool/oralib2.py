@@ -512,8 +512,8 @@ class Oracle:
         cursor = self.connection.cursor()
         cursor.execute(
             query,
-            object_name=object_name,
-            schema=schema,
+            object_name=object_name.upper(),
+            schema=schema.upper(),
         )
         cur_results = cursor.fetchall()
         cursor.close()
@@ -792,6 +792,7 @@ class Oracle:
         :param relationships: _description_
         :type relationships: types.ObjectStoreParameters
         """
+
         ddl_cache = DDLCache(ora_obj=self)
         for relation in relationships.dependency_list:
             dependency_obj = typing.cast(types.Dependency, relation)
@@ -800,6 +801,7 @@ class Oracle:
                 not relation.dependency_list
                 and not self.exported_objects.exists(dependency_obj)
             ):
+                # this is capturing the outer branches of the dependency tree
                 self.exported_objects.add_object(dependency_obj)
                 # create the migration here now
                 object_ddls = self.get_ddl(
@@ -810,6 +812,11 @@ class Oracle:
                     ddl=object_ddls,
                 )
                 LOGGER.debug("DDL: TABLE: %s", relation.object_name)
+            # need to inject in here another condition that says
+            # if all dependencies for the current object are written then
+            # write the object, if not then add to a cache, should start
+            # the loop by re-eval of cache
+
             # dependencies and not already exported, recurse...
             elif not self.exported_objects.exists(
                 dependency_obj,
@@ -998,6 +1005,17 @@ class ExportedObjects:
                 exists = True
                 break
         return exists
+
+    def dependencies_exported(self, db_object: types.Dependency) -> bool:
+        """
+        Identify if dependencies of db_object have already been exported.
+
+        :param db_object: _description_
+        :type db_object: types.Dependency
+        :return: _description_
+        :rtype: bool
+        """
+        pass
 
     def table_exists(self, table_name: str, table_schema: str) -> bool:
         """

@@ -3,7 +3,6 @@ Start script to run the data query tool.
 """
 
 import json
-import logging
 import logging.config
 import pathlib
 
@@ -19,8 +18,7 @@ def configure_logging() -> logging.Logger:
     """
     log_conf_path = pathlib.Path(__file__).parent / "logging.config"
     logging.config.fileConfig(log_conf_path)
-    logger = logging.getLogger("main")
-    logger.setLevel(logging.DEBUG)  # Set the logger level to DEBUG
+    logger = logging.getLogger(__name__)
     logger.debug("testing logger config...")
     return logger
 
@@ -104,8 +102,6 @@ def show_deps(
             object_name=seed_object,
             schema=schema,
         )
-    if isinstance(object_type, str):
-        object_type = types.ObjectType[object_type]
 
     # get_related_tables_sa will get all dependencies including other tables
     # that have foreign key constraints to the specified seed table and vise
@@ -239,6 +235,9 @@ def create_migrations(
         ora.exported_objects.add_objects(db_objects)
     # add the existing tables to the ora object so that it doesn't generate
     # duplicate migrations
+    # thinking here if we create an index for each table
+    # then ask if all that table dependencies have been handled THEN
+    # we can write the ddl for that table
 
     ddl_cache = ora.create_migrations(
         tabs,
