@@ -18,7 +18,7 @@ def configure_logging() -> logging.Logger:
     """
     log_conf_path = pathlib.Path(__file__).parent / "logging.config"
     logging.config.fileConfig(log_conf_path)
-    logger = logging.getLogger(__name__)
+    logger = logging.getLogger("main")
     logger.debug("testing logger config...")
     return logger
 
@@ -102,11 +102,13 @@ def show_deps(
             object_name=seed_object,
             schema=schema,
         )
+    if isinstance(object_type, str):
+        object_type = types.ObjectType[object_type]
 
     # get_related_tables_sa will get all dependencies including other tables
     # that have foreign key constraints to the specified seed table and vise
     # versa.
-    LOGGER.debug("type: %s", object_type)
+    LOGGER.debug("type: %s %s", object_type, type(object_type))
     if object_type.name in [otype.name for otype in types.ObjectType]:
         deps = ora.get_db_object_deps(
             object_name=seed_object,
