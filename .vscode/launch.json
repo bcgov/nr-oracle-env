@@ -65,7 +65,7 @@
                 "--seed-object",
                 "SEEDLOT",
                 "--migration-folder",
-                "project_specific/misc/junk"
+                "../project_specific/misc/junk"
             ]
         },
         {

@@ -239,10 +239,20 @@ def create_migrations(
     # then ask if all that table dependencies have been handled THEN
     # we can write the ddl for that table
 
-    ddl_cache = ora.create_migrations(
+    ddl_cache_tables = ora.create_migrations(
         tabs,
     )
-    migrations_list = ddl_cache.get_ddl()
+
+    # if you only want to create migrations for tables, then use the
+    # object_type_filter parameter to filter out the other object types
+    # this will only create migrations for tables.
+    # example:
+    #     ddl_cache_tables = ora.create_migrations(
+    #         tabs,
+    #         object_type_filter=[types.ObjectType.TABLE],
+    #     )
+
+    migrations_list = ddl_cache_tables.get_ddl()
     # now write migrations to a migration file
     current_migration_file.write_migrations(migrations_list)
 

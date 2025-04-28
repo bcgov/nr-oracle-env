@@ -61,6 +61,7 @@ class DDLCache:
         :param ddl: List of DDL statements associated with this object.
         :type ddl: list[str]
         """
+        ddl = self.remove_duplicates(db_object_type=db_object_type, ddl=ddl)
         if db_object_type == types.ObjectType.TRIGGER:
             self.triggers.extend(ddl)
         elif db_object_type == types.ObjectType.PACKAGE:
@@ -73,7 +74,49 @@ class DDLCache:
         elif db_object_type == types.ObjectType.TYPE:
             self.db_types.extend(ddl)
         else:
+            LOGGER.debug("unknown object type: %s", db_object_type)
             self.ddl_cache.extend(ddl)
+
+    def remove_duplicates(
+        self,
+        db_object_type: types.ObjectType,
+        ddl: list[str],
+    ) -> list[str]:
+        """
+        Do not include any duplicate DDL statements.
+
+        Any ddl provided in the list is checked against the existing cache, any
+        duplicates are removed from the list.
+
+        :param db_object_type: the object type that the ddl in the list is for.
+        :type db_object_type: types.ObjectType
+        :param ddl: a list DDL statements to be added to the cache.
+        :type ddl: list[str]
+        :return: a new list with any duplicates removed.
+        :rtype: list[str]
+        """
+        LOGGER.debug("removing duplicates for %s", db_object_type)
+        # remove duplicates from the list of DDL statements
+        cleaned_list = []
+        if db_object_type == types.ObjectType.TRIGGER:
+            obj_pointer = self.triggers
+        elif db_object_type == types.ObjectType.PACKAGE:
+            obj_pointer = self.packages
+        elif db_object_type == types.ObjectType.TYPE:
+            obj_pointer = self.db_types
+        elif db_object_type in (
+            types.ObjectType.FUNCTION,
+            types.ObjectType.PROCEDURE,
+        ):
+            obj_pointer = self.func_proc
+        else:
+            obj_pointer = self.ddl_cache
+        for ddl_str in ddl:
+            if ddl_str not in obj_pointer:
+                cleaned_list.append(ddl_str)
+            else:
+                LOGGER.debug("found duplicate: %s", ddl_str[0::25])
+        return cleaned_list
 
     def get_ddl(self) -> list[types.DDLCachedObject]:
         """
@@ -114,11 +157,31 @@ class DDLCache:
         :param ddl_cache: Input DDL cache that should be merged with this one.
         :type ddl_cache: DDLCache
         """
-        self.ddl_cache.extend(ddl_cache.ddl_cache)
-        self.triggers.extend(ddl_cache.triggers)
-        self.packages.extend(ddl_cache.packages)
-        self.func_proc.extend(ddl_cache.func_proc)
-        self.db_types.extend(ddl_cache.db_types)
+
+        self.ddl_cache.extend(
+            self.remove_duplicates(types.ObjectType.TABLE, ddl_cache.ddl_cache),
+        )
+        self.triggers.extend(
+            self.remove_duplicates(
+                types.ObjectType.TRIGGER,
+                ddl_cache.triggers,
+            ),
+        )
+        self.packages.extend(
+            self.remove_duplicates(
+                types.ObjectType.PACKAGE,
+                ddl_cache.packages,
+            ),
+        )
+        self.func_proc.extend(
+            self.remove_duplicates(
+                types.ObjectType.FUNCTION,
+                ddl_cache.func_proc,
+            ),
+        )
+        self.db_types.extend(
+            self.remove_duplicates(types.ObjectType.TYPE, ddl_cache.db_types),
+        )
 
 
 class Oracle:
@@ -142,6 +205,7 @@ class Oracle:
         # used to keep track of what tables have already been added to a
         # migration file.
         self.exported_objects = ExportedObjects()
+        self.cached_objects = ExportedObjects()
 
         # a list of tables who's deps have been defined.  If a table is
         # encountered that has been added to the list, then the tool will
@@ -778,9 +842,69 @@ class Oracle:
         cursor.close()
         return [ddl_str]
 
+    def create_table_migrations(
+        self,
+        relationships: types.DBDependencyMapping,
+    ) -> DDLCache:
+        """
+        Rips through the dependency tree and creates table only migrations.
+
+        This method is attempting to solve the problem where a dependency tree
+        has circular references.  The idea is to start at the outer edges of the
+        tree and work inwards.  However this sometimes leads to a situation a
+        situation where a table is dependent on a trigger, ta
+
+        :param relationships: _description_
+        :type relationships: types.DBDependencyMapping
+        :return: _description_
+        :rtype: DDLCache
+        """
+        ddl_cache = DDLCache(ora_obj=self)
+        for relation in relationships.dependency_list:
+            dependency_obj = typing.cast(types.Dependency, relation)
+            # relation has no dependencies and not already exported and not
+            # cached
+            if (
+                not relation.dependency_list
+                and not self.exported_objects.exists(dependency_obj)
+                and not self.cached_objects.exists(dependency_obj)
+            ):
+                # this is capturing the outer branches of the dependency tree
+                self.exported_objects.add_object(dependency_obj)
+                # create the migration here now
+                object_ddls = self.get_ddl(
+                    dependency_obj,
+                )
+                ddl_cache.add_ddl(
+                    db_object_type=dependency_obj.object_type,
+                    ddl=object_ddls,
+                )
+                LOGGER.debug("DDL: TABLE: %s", relation.object_name)
+            elif not self.exported_objects.exists(
+                dependency_obj,
+            ):
+                # obj has dependencies and not already exported, or c...
+                self.cached_objects.add_object(dependency_obj)
+
+                if dependency_obj.object_name.upper() == "FOREST_CLIENT":
+                    LOGGER.debug("forest client")
+
+                # then calls itself on this dep
+                ddl_current = self.create_migrations(
+                    relationships=relation,
+                )
+
+                # if the dependency is in the cache and not in exported
+                # then add to the cache
+
+                ddl_cache.merge_caches(ddl_current)
+
+        return ddl_cache
+
     def create_migrations(
         self,
         relationships: types.DBDependencyMapping,
+        object_type_filter: types.ObjectType | None = None,
     ) -> DDLCache:
         """
         Create database migrations for the input relationships.
@@ -794,51 +918,83 @@ class Oracle:
         """
 
         ddl_cache = DDLCache(ora_obj=self)
+        # iterate over each dependency for the current object and retrieve the
+        # depenencies ddl, loading to the ddl_cache object
         for relation in relationships.dependency_list:
             dependency_obj = typing.cast(types.Dependency, relation)
-            # no dependencies and not already exported
+
+            # if a filter is provided for specific object types, then this
+            # boolean will be used to determine if the ddl should be retrieved
+            # for the current object
+            get_ddl = True
+            if (
+                object_type_filter
+            ) and dependency_obj.object_type not in object_type_filter:
+                get_ddl = False
+
+            # this condition will capture any outer edges of the tree that do
+            # not themselves have any dependencies.
             if (
                 not relation.dependency_list
                 and not self.exported_objects.exists(dependency_obj)
             ):
-                # this is capturing the outer branches of the dependency tree
                 self.exported_objects.add_object(dependency_obj)
-                # create the migration here now
-                object_ddls = self.get_ddl(
-                    dependency_obj,
-                )
-                ddl_cache.add_ddl(
-                    db_object_type=dependency_obj.object_type,
-                    ddl=object_ddls,
-                )
-                LOGGER.debug("DDL: TABLE: %s", relation.object_name)
-            # need to inject in here another condition that says
-            # if all dependencies for the current object are written then
-            # write the object, if not then add to a cache, should start
-            # the loop by re-eval of cache
+                # get the migration ddl for the current object
+                if get_ddl:
+                    object_ddls = self.get_ddl(
+                        dependency_obj,
+                    )
+                    ddl_cache.add_ddl(
+                        db_object_type=dependency_obj.object_type,
+                        ddl=object_ddls,
+                    )
+                    LOGGER.debug("DDL: TABLE: %s", relation.object_name)
 
-            # dependencies and not already exported, recurse...
+            # if the current object has dependencies, and it is not already
+            # exported, then recurse on the current object.
             elif not self.exported_objects.exists(
                 dependency_obj,
             ):
-                # first call itself to ensure the migrations have been
-                # created that need to take place first.
-                self.exported_objects.add_object(dependency_obj)
-                ddl_cache.merge_caches(
-                    self.create_migrations(
-                        relationships=relation,
-                    ),
+                # performing the recursive call
+                ddl_current = self.create_migrations(
+                    relationships=relation,
+                    object_type_filter=object_type_filter,
                 )
-                LOGGER.debug("DDL: TABLE: %s", relation.object_name)
-                object_ddls = self.get_ddl(dependency_obj)
-                ddl_cache.add_ddl(
-                    db_object_type=dependency_obj.object_type,
-                    ddl=object_ddls,
-                )
-
-        dependency_obj = typing.cast(types.Dependency, relationships)
-        if not self.exported_objects.exists(
-            dependency_obj,
+                # verify that all dependencies have been exported before the
+                # current object can be exported.
+                if self.exported_objects.all_deps_exist(
+                    dependency_obj,
+                ):
+                    self.exported_objects.add_object(dependency_obj)
+                    if get_ddl:
+                        # write the returned ddl for the dependencies of the
+                        # current object
+                        ddl_cache.merge_caches(ddl_current)
+                    # now get / write the ddl for the current object
+                    LOGGER.debug("DDL: TABLE: %s", relation.object_name)
+                    if get_ddl:
+                        object_ddls = self.get_ddl(dependency_obj)
+                        ddl_cache.add_ddl(
+                            db_object_type=dependency_obj.object_type,
+                            ddl=object_ddls,
+                        )
+                else:
+                    LOGGER.error(
+                        "not all deps exist for %s",
+                        dependency_obj.object_name,
+                    )
+                    msg = (
+                        "missing dependencies for "
+                        f" {dependency_obj.object_name}"
+                    )
+                    raise ValueError(msg)
+        # double check that the current object has not already been exported,
+        # if it has not then add the ddl to the cache
+        if (
+            not self.exported_objects.exists(
+                dependency_obj,
+            )
+            and get_ddl
         ):
             self.exported_objects.add_object(
                 dependency_obj,
@@ -853,15 +1009,39 @@ class Oracle:
         return ddl_cache
 
     def load_json_deps(
-        self, json_file: pathlib.Path
+        self,
+        json_file: pathlib.Path,
     ) -> types.DBDependencyMapping:
+        """
+        Load the json file and return a dependency object.
+
+        For debugging / testing or potentially other purposes this method allows
+        you to load a json dependency file and return a pythons struct with
+        its contents.
+
+        :param json_file: _description_
+        :type json_file: pathlib.Path
+        :return: python dictionary or list that represents the json file.
+        :rtype: types.DBDependencyMapping
+        """
         struct = None
+        dependency = None
         with json_file.open("r") as fh:
             struct = json.load(fh)
             dependency = self.load_db_dep(struct)
+            LOGGER.debug("loaded json file, number of keys: %s", len(struct))
         return dependency
 
-    def load_db_dep(self, struct: dict):
+    def load_db_dep(self, struct: dict) -> types.DBDependencyMapping:
+        """
+        Load the dict into a dependency object.
+
+        :param struct: iterates over the dictionary and restructures it into
+            a dependency object.
+        :type struct: dict
+        :return: a dependency object that represents the input dictionary.
+        :rtype: types.DBDependencyMapping
+        """
         new_dep = types.DBDependencyMapping(
             object_type=types.ObjectType[struct["object_type"]],
             object_name=struct["object_name"],
@@ -971,7 +1151,8 @@ class ExportedObjects:
         :param schema: Input schema name
         :type schema: str
         """
-        self.exported_objects.append(db_object)
+        if not self.exists(db_object=db_object):
+            self.exported_objects.append(db_object)
 
     def add_objects(self, db_objects: list[types.Dependency]) -> None:
         """
@@ -983,6 +1164,39 @@ class ExportedObjects:
         """
         for db_object in db_objects:
             self.add_object(db_object=db_object)
+
+    def all_deps_exist(self, db_object: types.Dependency) -> bool:
+        """
+        Check if all dependencies of the given object have been exported.
+
+        :param db_object: input database dependency object.
+        :type db_object: types.Dependency
+        :return: _description_
+        :rtype: bool
+        """
+        for dep in db_object.dependency_list:
+            if not self.exists(dep):
+                return False
+            LOGGER.debug("dependency exists: %s", dep.object_name)
+        return True
+
+    def remove_object(self, db_object: types.Dependency) -> None:
+        """
+        Remove table from the exported tables list.
+
+        :param table_name: _description_
+        :type table_name: str
+        :param schema: _description_
+        :type schema: str
+        """
+        for index, obj in enumerate(self.exported_objects):
+            if (
+                obj.object_name.lower() == db_object.object_name.lower()
+                and obj.object_schema.lower() == db_object.object_schema.lower()
+                and obj.object_type == db_object.object_type
+            ):
+                del self.exported_objects[index]
+                break
 
     def exists(self, db_object: types.Dependency) -> bool:
         """
@@ -1005,17 +1219,6 @@ class ExportedObjects:
                 exists = True
                 break
         return exists
-
-    def dependencies_exported(self, db_object: types.Dependency) -> bool:
-        """
-        Identify if dependencies of db_object have already been exported.
-
-        :param db_object: _description_
-        :type db_object: types.Dependency
-        :return: _description_
-        :rtype: bool
-        """
-        pass
 
     def table_exists(self, table_name: str, table_schema: str) -> bool:
         """
