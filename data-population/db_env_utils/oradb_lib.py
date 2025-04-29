@@ -1832,7 +1832,9 @@ class DataFrameExtended(pd.DataFrame):
         if isinstance(value, numpy.floating):
             return float(value)  # Convert float64 to native float
         if isinstance(value, pd.Timestamp):
-            return datetime.datetime.fromtimestamp(value.timestamp()).strftime(  # noqa: DTZ006
+            return datetime.datetime.fromtimestamp(
+                value.timestamp()
+            ).strftime(  # noqa: DTZ006
                 "%Y-%m-%d %H:%M:%S",
             )
         if pd.isna(value):
@@ -2290,6 +2292,7 @@ class DuckDbUtil:
         :type table_name: str
         """
         self.duckdb_path = duckdb_path
+        self.make_duck_directory()
         self.table_name = table_name
         self.ddb_con = duckdb.connect(database=self.duckdb_path)
         self.ddb_con.install_extension("spatial")
@@ -2306,6 +2309,20 @@ class DuckDbUtil:
         # if extracting this is where the column configuration gets cached so
         # that it doesn't need to be recreated each time.
         self.query_cols = None
+
+    def make_duck_directory(self) -> bool:
+        """
+        Create the directory for the duckdb file.
+
+        :return: True if the directory was created, False if it already exists.
+        :rtype: bool
+        """
+        try:
+            self.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
+            return True
+        except OSError as err:
+            LOGGER.error("unable to create directory %s", err)
+            return False
 
     def close(self) -> None:
         """
