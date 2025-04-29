@@ -990,20 +990,21 @@ class Oracle:
                     raise ValueError(msg)
         # double check that the current object has not already been exported,
         # if it has not then add the ddl to the cache
+        relationships_dep = typing.cast(types.Dependency, relationships)
         if (
             not self.exported_objects.exists(
-                dependency_obj,
+                relationships_dep,
             )
             and get_ddl
         ):
             self.exported_objects.add_object(
-                dependency_obj,
+                relationships_dep,
             )
 
-            LOGGER.debug("DDL: TABLE: %s", relationships.object_name)
-            object_ddls = self.get_ddl(dependency_obj)
+            LOGGER.debug("DDL: TABLE: %s", relationships_dep.object_name)
+            object_ddls = self.get_ddl(relationships_dep)
             ddl_cache.add_ddl(
-                db_object_type=dependency_obj.object_type,
+                db_object_type=relationships_dep.object_type,
                 ddl=object_ddls,
             )
         return ddl_cache
