@@ -76,10 +76,14 @@ class KubeClient:
             dict: dictionary of secrets
 
         """
+        exclude_str = f"{filter_str}-backup"
         filtered_secrets = []
         secrets = self.api.list_namespaced_secret(namespace=namespace)
         for secret in secrets.items:
-            if filter_str.lower() in secret.metadata.name.lower():
+            if (
+                filter_str.lower() in secret.metadata.name.lower()
+                and exclude_str not in secret.metadata.name.lower()
+            ):
                 filtered_secrets.append(secret)
             LOGGER.debug("secrets: %s", secret.metadata.name)
         return filtered_secrets

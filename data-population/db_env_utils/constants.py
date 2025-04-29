@@ -44,7 +44,7 @@ DUCK_DB_SUFFIX = "ddb"
 OBJECT_STORE_DATA_DIRECTORY = os.getenv("OBJECT_STORE_DATA_DIRECTORY", "pyetl")
 
 # database filter string
-DB_FILTER_STRING = os.getenv("DB_FILTER_STRING", "nr-spar-{env_str}-databaseee")
+DB_FILTER_STRING = os.getenv("DB_FILTER_STRING", "nr-spar-{env_str}-database")
 # the port to use for the local port when establishing a port forward, and then
 # for connecting to the database that is in kubernetes
 DB_LOCAL_PORT = 5433
