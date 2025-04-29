@@ -334,7 +334,7 @@ class MigrationFile:
         """
 
         # only write migrations if you have something to actually write
-        LOGGER.debug("migration_list: %s", migration_list)
+        # LOGGER.debug("migration_list: %s", migration_list)
         if migration_list:
             # base migration file for the core DDL
             migration_file = self.get_migration_file()
@@ -617,7 +617,7 @@ class MigrationFileParser:
             ids = sqlparse.sql.Identifier(parsed[0].tokens)
             is_table = False  # noqa: F841
             for parse_id in ids:
-                LOGGER.debug("id: %s %s", parse_id, type(parse_id))
+                # LOGGER.debug("id: %s %s", parse_id, type(parse_id))
                 # if id.is_keyword and id.value == "TABLE": # unique shows as ttype=Token.Keyword  # noqa: E501
                 if (
                     parse_id.is_keyword
@@ -635,12 +635,12 @@ class MigrationFileParser:
                 cur_idx = 0
                 data_dict = {}
                 for token in parsed[0].tokens:
-                    LOGGER.debug("token: %s", token)
-                    LOGGER.debug("token.ttype: %s", token.ttype)
+                    # LOGGER.debug("token: %s", token)
+                    # LOGGER.debug("token.ttype: %s", token.ttype)
                     if token.ttype == search_stack_ttypes[cur_idx][
                         0
                     ] and token.normalized not in ["EDITIONABLE", "FORCE"]:
-                        LOGGER.debug("DDL token: %s", token)
+                        # LOGGER.debug("DDL token: %s", token)
                         data_dict[search_stack_ttypes[cur_idx][1]] = getattr(
                             token,
                             search_stack_ttypes[cur_idx][2],
@@ -648,9 +648,9 @@ class MigrationFileParser:
                         cur_idx += 1
                     if cur_idx >= len(search_stack_ttypes):
                         break
-                    LOGGER.debug("token ttype type: %s", type(token.ttype))
-                    LOGGER.debug("token.value: %s", token.value)
-                    LOGGER.debug("token type: %s", type(token))
+                    # LOGGER.debug("token ttype type: %s", type(token.ttype))
+                    # LOGGER.debug("token.value: %s", token.value)
+                    # LOGGER.debug("token type: %s", type(token))
                     # if token.ttype == search_stack_ttypes[cur_idx][0]:
                 # get rid of unnecessary quotes
                 data_dict["object_name"] = data_dict["object_name"].replace(
