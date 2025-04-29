@@ -140,6 +140,7 @@ class Utility:
         oc_pg_db_params.port = constants.DB_LOCAL_PORT
         db_connection = postgresdb_lib.PostgresDatabase(
             connection_params=oc_pg_db_params,
+            app_paths=self.app_paths,
         )
         tables_to_export = db_connection.get_tables(
             schema=oc_pg_db_params.schema_to_sync,
@@ -377,6 +378,7 @@ class Utility:
             spar_db_params.port = constants.DB_LOCAL_PORT
             db_connection = postgresdb_lib.PostgresDatabase(
                 connection_params=spar_db_params,
+                app_paths=self.app_paths,
             )
         # example of some of the tables that triggered the ostore upload issue
         # SEEDLOT / CLIENT_LOCATION / PARENT_TREE / SMP_MIX
