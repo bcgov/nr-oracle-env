@@ -400,8 +400,12 @@ BIG_DATA_FILTERS = [
         ),
         ddb_where_clause="ADD_TIMESTAMP > make_date(2024, 01, 01)",
     ),
-
-
-
-
+    data_types.DataFilter(
+        table_name="FOR_CLI_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "ADD_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="ADD_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
 ]
