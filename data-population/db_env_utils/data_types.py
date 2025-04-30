@@ -23,7 +23,8 @@ class DataToMask:
     schema: str
     column_name: str
     faker_method: str
-    percent_null: int
+    percent_null: int | None = None
+    ignore: bool | None = None
 
 
 @dataclass

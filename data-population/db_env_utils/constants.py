@@ -278,6 +278,38 @@ DATA_TO_MASK = [
         faker_method=lambda: fake.sentence(),
         percent_null=95,
     ),
+    data_types.DataToMask(
+        table_name="MAILING_CITY",
+        schema="THE",
+        column_name="CITY_NAME",
+        faker_method=None,
+        percent_null=0,
+        ignore=True,
+    ),
+    # data_types.DataToMask(
+    #     table_name="MAILING_CITY",
+    #     schema="THE",
+    #     column_name="CITY_NAME",
+    #     faker_method=None,
+    #     percent_null=0,
+    #     ignore=True,
+    # ),
+    data_types.DataToMask(
+        table_name="MAILING_CITY",
+        schema="THE",
+        column_name="COUNTRY_NAME",
+        faker_method=None,
+        percent_null=0,
+        ignore=True,
+    ),
+    data_types.DataToMask(
+        table_name="MAILING_CITY",
+        schema="THE",
+        column_name="PROVINCE_STATE_NAME",
+        faker_method=None,
+        percent_null=0,
+        ignore=True,
+    ),
 ]
 
 
