@@ -1832,9 +1832,7 @@ class DataFrameExtended(pd.DataFrame):
         if isinstance(value, numpy.floating):
             return float(value)  # Convert float64 to native float
         if isinstance(value, pd.Timestamp):
-            return datetime.datetime.fromtimestamp(
-                value.timestamp()
-            ).strftime(  # noqa: DTZ006
+            return datetime.datetime.fromtimestamp(value.timestamp()).strftime(  # noqa: DTZ006
                 "%Y-%m-%d %H:%M:%S",
             )
         if pd.isna(value):
@@ -2654,13 +2652,6 @@ class DataClassification:
         Merge classifications in constants with classes defined in the ss.
         """
         self.dc_struct = {}
-        for class_rec in constants.DATA_TO_MASK:
-            tab = class_rec.table_name
-            col = class_rec.column_name
-            if tab not in self.dc_struct:
-                self.dc_struct[tab] = {}
-            if col not in self.dc_struct[tab]:
-                self.dc_struct[tab][col] = class_rec
 
         for sheet_name in self.valid_sheets:
             dfs = pd.read_excel(self.ss_path, sheet_name=sheet_name)
@@ -2684,6 +2675,24 @@ class DataClassification:
                     self.dc_struct[tab] = {}
                 if col not in self.dc_struct[tab]:
                     self.dc_struct[tab][col] = class_rec
+
+        # load the data classification defined in the constants,
+        # remove any classifications that have been identified as ignore
+        for class_rec in constants.DATA_TO_MASK:
+            tab = class_rec.table_name
+            col = class_rec.column_name
+            if tab not in self.dc_struct:
+                self.dc_struct[tab] = {}
+            if (
+                col in self.dc_struct[tab]
+                and hasattr(self.dc_struct[tab][col], "ignore")
+                and class_rec.ignore
+            ):
+                # remove the column from the data classification
+                LOGGER.warning("override")
+                del self.dc_struct[tab][col]
+            else:
+                self.dc_struct[tab][col] = class_rec
 
 
 class EnableConstraintsMaxRetriesError(Exception):
