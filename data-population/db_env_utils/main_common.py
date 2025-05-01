@@ -457,7 +457,9 @@ class Utility:
         if self.db_type == constants.DBType.OC_POSTGRES:
             self.kube_client.close_port_forward()
 
-    def run_injest(self, *, purge: bool, refreshdb: bool) -> None:
+    def run_injest(
+        self, *, purge: bool, refreshdb: bool, table2import: str | None
+    ) -> None:
         """
         Load data cached in object store to the database.
 
@@ -480,8 +482,10 @@ class Utility:
                 if file_path.is_file():
                     file_path.unlink()  # Delete the file
         self.make_dirs()
-
-        tables_to_import = self.get_tables()
+        if table2import:
+            tables_to_import = [table2import]
+        else:
+            tables_to_import = self.get_tables()
         LOGGER.debug("tables to import: %s", tables_to_import)
 
         ostore = self.connect_ostore()
