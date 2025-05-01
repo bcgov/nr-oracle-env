@@ -437,12 +437,13 @@ class Utility:
                 "Export file %s does not exist in object store, exporting",
                 ostore_export_file,
             )
-
-            file_created = db_connection.extract_data(
-                table,
-                local_export_file,
-                overwrite=refresh,
-            )
+            file_created = False
+            if not local_export_file.exists():
+                file_created = db_connection.extract_data(
+                    table,
+                    local_export_file,
+                    overwrite=refresh,
+                )
 
             if file_created:
                 # push the file to object store, if a new file has been

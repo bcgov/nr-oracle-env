@@ -483,24 +483,27 @@ class OracleDatabase(db_lib.DB):
                 ac.table_name,
                 acc.column_name,
                 ac.r_constraint_name,
-                ac2.table_name AS referenced_table,
-                acc2.column_name AS referenced_column
+                arc.table_name AS referenced_table,
+                arcc.column_name AS referenced_column
             FROM
                 all_constraints ac
-                JOIN all_cons_columns acc
-                    ON ac.constraint_name = acc.constraint_name
-                    AND ac.owner = acc.owner
-                JOIN all_constraints ac2
-                    ON ac.r_constraint_name = ac2.constraint_name
-                    AND ac.r_owner = ac2.owner
-                JOIN all_cons_columns acc2
-                    ON ac2.constraint_name = acc2.constraint_name
-                    AND ac2.owner = acc2.owner
+                JOIN all_cons_columns acc ON ac.constraint_name =
+                    acc.constraint_name
+                JOIN all_constraints arc ON ac.r_constraint_name =
+                    arc.constraint_name
+                JOIN all_cons_columns arcc ON
+                    arc.constraint_name = arcc.constraint_name
+                    AND ac.table_name = acc.table_name
+                    AND acc.position = arcc.position
             WHERE
                 ac.constraint_type = 'R'
                 AND ac.owner = :schema
+                AND arc.owner = :schema
+                AND arcc.owner = :schema
             ORDER BY
-                ac.constraint_name, ac.table_name
+                ac.table_name,
+                ac.constraint_name,
+                acc.POSITION
         """
         cursor = self.connection.cursor()
         LOGGER.debug("schema_2_sync: %s", self.schema_2_sync)
@@ -709,8 +712,18 @@ class OracleDatabase(db_lib.DB):
             constraint.table_name,
             return_recs[0:10],
         )
-        LOGGER.debug("total number of records to delete: %s", len(return_recs))
-        return return_recs
+        LOGGER.debug(
+            "total number of records to delete pre duplicate removal: %s",
+            len(return_recs),
+        )
+        unique_data = [
+            list(item) for item in set(tuple(row) for row in return_recs)
+        ]
+        LOGGER.debug(
+            "total number of records to delete post duplicate removal: %s",
+            len(unique_data),
+        )
+        return unique_data
 
     def delete_no_ri_data(
         self,
@@ -736,10 +749,11 @@ class OracleDatabase(db_lib.DB):
 
         no_ri_data_all = self.get_no_ri_data(constraint)
         cursor = self.connection.cursor()
-        query_param_list = []
+        # query_param_list = []
         records_removed = []
         for rec_cnt, no_ri_data in enumerate(no_ri_data_all):
             col_cnt = 0
+            query_param_list = []
             for col_cnt in range(len(no_ri_data)):
                 if not isinstance(no_ri_data[col_cnt], str):
                     no_ri_str = no_ri_data[col_cnt]
@@ -757,18 +771,19 @@ class OracleDatabase(db_lib.DB):
             cursor.execute(query)
             if rec_cnt % 200 == 0:
                 LOGGER.info(
-                    "deleted %s or %s records from %s/%s",
+                    "deleted %s or %s records from %s/%s... committing changes!",
                     rec_cnt,
                     len(no_ri_data_all),
                     constraint.table_name,
                     constraint.column_names,
                 )
+                self.connection.commit()
         cursor.close()
         LOGGER.info(
-            "records removed from %s/%s: %s",
+            "records removed from %s/%s: %s ...",
             constraint.table_name,
             constraint.column_names,
-            records_removed,
+            records_removed[0:10],
         )
         self.connection.commit()
 
@@ -2440,7 +2455,7 @@ class DuckDbUtil:
 
         :param ora_type: The oracle type"
         """
-        LOGGER.debug("ora_type: %s", ora_type)
+        # LOGGER.debug("ora_type: %s", ora_type)
         return constants.ORACLE_TYPES_TO_DDB_TYPES[ora_type]
 
     def create_table(self, ora_cols: list[list[str | int]]) -> None:
