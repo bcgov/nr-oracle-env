@@ -452,31 +452,56 @@ class OracleDatabase(db_lib.DB):
 
         self.get_connection()
 
-        query = """SELECT
-                    ac.constraint_name,
-                    ac.table_name,
-                    acc.column_name,
-                    ac.r_constraint_name,
-                    arc.table_name AS referenced_table,
-                    arcc.column_name AS referenced_column
-                FROM
-                    all_constraints ac
-                    JOIN all_cons_columns acc ON ac.constraint_name =
-                        acc.constraint_name
-                    JOIN all_constraints arc ON ac.r_constraint_name =
-                        arc.constraint_name
-                    JOIN all_cons_columns arcc ON
-                        arc.constraint_name = arcc.constraint_name
-                        AND ac.table_name = acc.table_name
-                        AND acc.column_name = arcc.column_name
-                WHERE
-                    ac.constraint_type = 'R'
-                    AND ac.owner = :schema
-                    AND arc.owner = :schema
-                ORDER BY
-                    ac.table_name,
-                    ac.constraint_name,
-                    acc.POSITION"""
+        # query = """SELECT
+        #             ac.constraint_name,
+        #             ac.table_name,
+        #             acc.column_name,
+        #             ac.r_constraint_name,
+        #             arc.table_name AS referenced_table,
+        #             arcc.column_name AS referenced_column
+        #         FROM
+        #             all_constraints ac
+        #             JOIN all_cons_columns acc ON ac.constraint_name =
+        #                 acc.constraint_name
+        #             JOIN all_constraints arc ON ac.r_constraint_name =
+        #                 arc.constraint_name
+        #             JOIN all_cons_columns arcc ON
+        #                 ac.constraint_name = arcc.constraint_name
+        #                 AND ac.table_name = acc.table_name
+        #                 AND acc.column_name = arcc.column_name
+        #         WHERE
+        #             ac.constraint_type = 'R'
+        #             AND ac.owner = :schema
+        #             AND arc.owner = :schema
+        #         ORDER BY
+        #             ac.table_name,
+        #             ac.constraint_name,
+        #             acc.POSITION"""
+        query = """
+            SELECT
+                ac.constraint_name,
+                ac.table_name,
+                acc.column_name,
+                ac.r_constraint_name,
+                ac2.table_name AS referenced_table,
+                acc2.column_name AS referenced_column
+            FROM
+                all_constraints ac
+                JOIN all_cons_columns acc
+                    ON ac.constraint_name = acc.constraint_name
+                    AND ac.owner = acc.owner
+                JOIN all_constraints ac2
+                    ON ac.r_constraint_name = ac2.constraint_name
+                    AND ac.r_owner = ac2.owner
+                JOIN all_cons_columns acc2
+                    ON ac2.constraint_name = acc2.constraint_name
+                    AND ac2.owner = acc2.owner
+            WHERE
+                ac.constraint_type = 'R'
+                AND ac.owner = :schema
+            ORDER BY
+                ac.constraint_name, ac.table_name
+        """
         cursor = self.connection.cursor()
         LOGGER.debug("schema_2_sync: %s", self.schema_2_sync)
         cursor.execute(query, schema=self.schema_2_sync.upper())
@@ -712,7 +737,8 @@ class OracleDatabase(db_lib.DB):
         no_ri_data_all = self.get_no_ri_data(constraint)
         cursor = self.connection.cursor()
         query_param_list = []
-        for no_ri_data in no_ri_data_all:
+        records_removed = []
+        for rec_cnt, no_ri_data in enumerate(no_ri_data_all):
             col_cnt = 0
             for col_cnt in range(len(no_ri_data)):
                 if not isinstance(no_ri_data[col_cnt], str):
@@ -726,14 +752,24 @@ class OracleDatabase(db_lib.DB):
             where_clause = " AND ".join(query_param_list)
 
             query = f"DELETE FROM {constraint.table_name} where {where_clause}"  # noqa: S608
-            LOGGER.info(
-                "records removed from %s/%s: %s",
-                constraint.table_name,
-                constraint.column_names,
-                no_ri_data,
-            )
+
+            records_removed.append(no_ri_data)
             cursor.execute(query)
+            if rec_cnt % 200 == 0:
+                LOGGER.info(
+                    "deleted %s or %s records from %s/%s",
+                    rec_cnt,
+                    len(no_ri_data_all),
+                    constraint.table_name,
+                    constraint.column_names,
+                )
         cursor.close()
+        LOGGER.info(
+            "records removed from %s/%s: %s",
+            constraint.table_name,
+            constraint.column_names,
+            records_removed,
+        )
         self.connection.commit()
 
     def fix_sequences(self) -> None:
@@ -1832,7 +1868,9 @@ class DataFrameExtended(pd.DataFrame):
         if isinstance(value, numpy.floating):
             return float(value)  # Convert float64 to native float
         if isinstance(value, pd.Timestamp):
-            return datetime.datetime.fromtimestamp(value.timestamp()).strftime(  # noqa: DTZ006
+            return datetime.datetime.fromtimestamp(
+                value.timestamp()
+            ).strftime(  # noqa: DTZ006
                 "%Y-%m-%d %H:%M:%S",
             )
         if pd.isna(value):
