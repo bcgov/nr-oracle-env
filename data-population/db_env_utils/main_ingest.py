@@ -72,7 +72,19 @@ LOGGER = logging.getLogger(__name__)
     is_flag=True,
     help="if set true all tables will be truncated in db before load",
 )
-def main(dest: str, environment: str, purge: bool, refreshdb: bool) -> None:  # noqa: FBT001
+@click.option(
+    "--table",
+    default=None,
+    # help="extract one specific table",
+    required=False,
+)
+def main(
+    dest: str,
+    environment: str,
+    purge: bool,
+    refreshdb: bool,
+    table: str,
+) -> None:  # noqa: FBT001
     """
     Load the data from object store cache to local oracle database.
 
@@ -130,7 +142,8 @@ def main(dest: str, environment: str, purge: bool, refreshdb: bool) -> None:  # 
     LOGGER.info("purge: %s %s", purge, type(purge))
     LOGGER.info("refreshdb: %s, %s", refreshdb, type(refreshdb))
     LOGGER.info("populating the local oracle db")
-    common_util.run_injest(purge=purge, refreshdb=refreshdb)
+    # table2import
+    common_util.run_injest(purge=purge, refreshdb=refreshdb, table2import=table)
     LOGGER.info("Injest complete")
 
 
