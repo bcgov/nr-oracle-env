@@ -10,7 +10,17 @@ NOT part of the repository.
 
 The `oracle-dp-import` only needs to be run once.  It is this step that will
 load the data from the datapump file to oracle.  This typically takes between
-15 minutes and half an hour.  It will create a volume that is re-used.
+15 minutes and half an hour.  The docker compose file is configured to create
+a reuseable volume.  This means that the oracle database can be spun up later
+much more quickly as it does not need to re-run the datapump import.
+
+If you want to list existing volumes you can run:
+```
+docker volume ls
+```
+
+The volume `nr-fsa-orastruct_oracle-data-struct` is the one that contains the
+struct database / datapump structural database.
 
 After the data is loaded all subsequent starts of the database should use:
 
@@ -43,7 +53,7 @@ the datapump export file that you would like to have loaded.
 
 ### as sysdba
 
-`sqlplus system/default@localhost:1522/DBDOCK_STRUCT_01`
+`sqlplus sys/default@localhost:1522/DBDOCK_STRUCT_01 as sysdba`
 
 ### as user
 

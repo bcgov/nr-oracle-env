@@ -52,7 +52,7 @@ and generate a dependency tree for any given object.  The tool can then also
 be used to generate migration files for all the objects required to maintain
 referential integrity given the seed/start table that specified.
 
-### TL:DR
+### TL;DR
 
 The following will:
 * navigate to the data-query-tool
@@ -76,7 +76,11 @@ uv run python main.py create-migrations \
 
 # C) Load the migrations to a local TEST database
 
-### TL:DR
+### TL;DR
+
+Migrations contain the database structure (table/view/packages... definitions).
+They are stored in files with sequential numbers and are prefixed with a `V`.
+Flyway will run the migrations in the order specified by the names of the files.
 
 Assuming you generated the migration files in the `data/migrations` folder, you
 should be able to spin up the test database and run the migrations with the
@@ -107,7 +111,7 @@ cached in object storage, to the test oracle database (created in step C).  This
 is essentially the final step allowing teams to create a "just enough oracle"
 database.
 
-### TL:DR
+### TL;DR
 
 * populate the object store environment variables
 * load the data
@@ -116,6 +120,9 @@ database.
 
 [Details on the data load script/process](docs/data_load.md)
 
+Also you can view all the options for the main_ingest.py script by running:
+
+`uv run python db_env_utils/main_ingest.py --help`
 
 
 

@@ -92,7 +92,7 @@ up to 3 hours to run.
 
 * extract does not pull any blob/clob data
 * data classifications are stored either in the data classification spreadsheet
-    and is also augemented in the constants module in the DATA_TO_MASK variable.
+    and is also augemented in the [constants](../data-population/db_env_utils/constants.py) module in the DATA_TO_MASK variable.
 * any geometry/spatial data only extracts the bounding box for the data.
 * custom configuration can be added to the constants modules BIG_DATA_FILTERS
     which defined where clause to be applied to any large tables.

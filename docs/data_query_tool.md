@@ -80,11 +80,24 @@ uv run main.py \
     --seed-table SEEDLOT
 ```
 
-This will create a file called `V1.0.0__seedlot_table_migration.sql` in the
+The following will generate a series of files that are aggregated by object
+type, for example:
+
+```
+* V1.0.0__seedlot.sql - contains tables / views / sequences
+* V1.0.2__seedlot_TYP.sql - oracle types
+* V1.0.3__seedlot_PKG.sql - packages
+* V1.0.4__seedlot_FP.sql - functions and procedures
+* V1.0.5__seedlot_TRG.sql - triggers.
+```
+
+If the source table is something like a code table without any foreign keys or
+trigger dependencies the output will likely be a single table like
+ `V1.0.0__seedlot_table_migration.sql` and is located in the
 folder `./data/my_migrations`.
 
 IF there are already migrations files in the ./data/my_migrations folder, the
 script will read those scripts to ensure that any subsequent migrations that
 get generated do not duplicate already existing objects.
 
-[dependency script docs](docs/dependency_tool_cli.md)
+[dependency script docs](./dependency_tool_cli.md)

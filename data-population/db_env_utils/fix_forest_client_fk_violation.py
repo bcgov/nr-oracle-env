@@ -120,7 +120,7 @@ class OracleSeedlot:
 
 if __name__ == "__main__":
     # only using to setup logging
-    util = main_common.Utility("TEST", constants.DBType.SPAR)
+    util = main_common.Utility("TEST", constants.DBType.OC_POSTGRES)
     util.configure_logging()
     LOGGER.setLevel(logging.DEBUG)
 

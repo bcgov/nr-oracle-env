@@ -50,7 +50,7 @@ LOGGER = logging.getLogger(__name__)
 @click.argument(
     "dest",
     type=click.Choice(
-        ["SPAR", "ORA"],
+        ["OC_POSTGRES", "ORA"],
         case_sensitive=False,
     ),
     required=True,
@@ -90,8 +90,8 @@ def main(
 
     \b
     destintation database :
-        * SPAR - Load cached SPAR data into the SPAR database.
-        * ORA  - Load cached ORA data into the ORA database.
+        * OC_POSTGRES - Load cached SPAR data into the SPAR database.
+        * ORA         - Load cached ORA data into the ORA database.
 
 
     \b
