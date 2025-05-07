@@ -1,6 +1,6 @@
 # env vars required to run the data extract
 
-# ----- local oracle database -----
+# ----- local oracle database main_ingest.py will populate this-----
 ORACLE_HOST_LOCAL=localhost
 ORACLE_PORT_LOCAL=1523
 ORACLE_SERVICE_LOCAL=dbdock_test_01
@@ -8,24 +8,34 @@ ORACLE_SYNC_USER_LOCAL=THE
 ORACLE_SYNC_PASSWORD_LOCAL=default
 ORACLE_SCHEMA_TO_SYNC_LOCAL=THE
 
+# ----- local postgres database - main_ingest.py will populate this -----
+POSTGRES_HOST_LOCAL=localhost
+POSTGRES_PORT_LOCAL=5432
+POSTGRES_SERVICE_LOCAL=
+POSTGRES_USER_LOCAL=
+POSTGRES_PASSWORD_LOCAL=
+POSTGRES_SCHEMA_TO_SYNC_LOCAL=
+
 # ----- object store env variables -----
 #  directory for where the data is going to be located in the object store
 OBJECT_STORE_DATA_DIRECTORY=
 
-# parameters to connect to object store test env
+# parameters to connect to object store containing cached test env data
+#  access either write(extract) or read(ingest)
 OBJECT_STORE_USER_TEST=
 OBJECT_STORE_SECRET_TEST=
 OBJECT_STORE_BUCKET_TEST=
 OBJECT_STORE_HOST_TEST=
 
-# parameters to connect to object store prod env
+# parameters to connect to object store containing cached prod env data
+#  access either write(extract) or read(ingest)
 OBJECT_STORE_USER_PROD=
 OBJECT_STORE_SECRET_PROD=
 OBJECT_STORE_BUCKET_PROD=
 OBJECT_STORE_HOST_PROD=
 
 # ----- database parameters -----
-
+# source for the data for the oracle extract - test
 ORACLE_HOST_TEST=
 ORACLE_PORT_TEST=
 ORACLE_SERVICE_TEST=
@@ -33,9 +43,19 @@ ORACLE_USER_TEST=
 ORACLE_PASSWORD_TEST=
 ORACLE_SCHEMA_TO_SYNC_TEST=THE
 
+# source for the data for the oracle extract - prod
 ORACLE_HOST_PROD=
 ORACLE_PORT_PROD=
 ORACLE_SERVICE_PROD=
 ORACLE_USER_PROD=
 ORACLE_PASSWORD_PROD=
 ORACLE_SCHEMA_TO_SYNC_PROD=THE
+
+# postgres database access for postgres extract
+# postgres extract communicates with openshift and retrieves secrets
+OC_URL=https://api.silver.devops.gov.bc.ca:6443
+OC_LICENSE_PLATE_TEST=
+OC_TOKEN_TEST=
+
+OC_LICENSE_PLATE_PROD=
+OC_TOKEN_PROD=
