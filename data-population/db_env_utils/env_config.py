@@ -232,6 +232,26 @@ class Env:
         LOGGER.debug("schema to sync: %s", database_const.schema_to_sync)
         return database_const
 
+    def get_local_oc_postgres_conn_params(self) -> ConnectionParameters:
+        database_const = ConnectionParameters
+        envstr = "LOCAL"
+
+        database_const.host = os.getenv(f"POSTGRES_HOST_{envstr}")
+        database_const.port = os.getenv(f"POSTGRES_PORT_{envstr}")
+        database_const.service_name = os.getenv(
+            f"POSTGRES_SERVICE_{envstr}",
+        )
+        database_const.username = os.getenv(f"POSTGRES_USER_{envstr}")
+        database_const.password = os.getenv(
+            f"POSTGRES_PASSWORD_{envstr}",
+        )
+
+        database_const.schema_to_sync = os.getenv(
+            f"POSTGRES_SCHEMA_TO_SYNC_{envstr}",
+        )
+        LOGGER.debug("schema to sync: %s", database_const.schema_to_sync)
+        return database_const
+
     def get_local_ora_db_env_constants(self) -> ConnectionParameters:
         """
         Populate constants from the environment.

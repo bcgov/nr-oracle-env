@@ -13,7 +13,8 @@ import time
 
 import app_paths
 import constants
-import docker_parser
+
+# import docker_parser
 import env_config
 import kubernetes_wrapper
 import object_store
@@ -156,10 +157,15 @@ class Utility:
         :return: list of tables found in the local postgres database schema
         :rtype: list[str]
         """
-        dcr = docker_parser.ReadDockerCompose()
-        pg_local_params = dcr.get_local_postgres_conn_params()
+        # dcr = docker_parser.ReadDockerCompose()
+        # pg_local_params = dcr.get_local_postgres_conn_params()
+        pg_local_params = self.env_obj.get_local_oc_postgres_conn_params()
+
         LOGGER.debug("schema to sync: %s", pg_local_params.schema_to_sync)
-        local_docker_db = postgresdb_lib.PostgresDatabase(pg_local_params)
+        local_docker_db = postgresdb_lib.PostgresDatabase(
+            pg_local_params,
+            self.app_paths,
+        )
         tables_to_export = local_docker_db.get_tables(
             local_docker_db.schema_2_sync,
             omit_tables=["FLYWAY_SCHEMA_HISTORY"],
@@ -490,7 +496,7 @@ class Utility:
         LOGGER.debug("tables to import: %s", tables_to_import)
 
         ostore = self.connect_ostore()
-        dcr = docker_parser.ReadDockerCompose()
+        # dcr = docker_parser.ReadDockerCompose()
 
         # getting connection params from the env and then creating db connection
         # to local docker container oracle db where the data is being loaded.
@@ -504,8 +510,12 @@ class Utility:
             )
 
         elif self.db_type == constants.DBType.OC_POSTGRES:
-            local_db_params = dcr.get_spar_conn_params()
-            local_docker_db = postgresdb_lib.PostgresDatabase(local_db_params)
+            # local_db_params = dcr.get_local_postgres_conn_params()
+            local_db_params = self.env_obj.get_local_oc_postgres_conn_params()
+            local_docker_db = postgresdb_lib.PostgresDatabase(
+                local_db_params,
+                self.app_paths,
+            )
 
         # only gets files if they don't exist locally.  If purge is set then the
         # local cache will have been emptied before code gets here.
