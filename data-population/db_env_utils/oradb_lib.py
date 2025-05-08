@@ -2742,7 +2742,7 @@ class DataClassification:
                 and class_rec.ignore
             ):
                 # remove the column from the data classification
-                LOGGER.warning("override")
+                LOGGER.warning("override for %s %s", tab, col)
                 del self.dc_struct[tab][col]
             else:
                 self.dc_struct[tab][col] = class_rec
