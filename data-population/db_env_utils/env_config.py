@@ -170,7 +170,10 @@ class Env:
         need to pull in this value from the environment.
         """
         LOGGER.debug("env for schema retrieval: %s", self.current_env)
-        return os.getenv(f"ORACLE_SCHEMA_TO_SYNC_{self.current_env}", "THE")
+        return os.getenv(
+            f"ORACLE_SCHEMA_TO_SYNC_{self.current_env}",
+            "THE",
+        ).upper()
 
     def get_ostore_constants(self) -> ObjectStoreParameters:
         """
@@ -280,6 +283,33 @@ class Env:
         )
         database_const.schema_to_sync = os.getenv(
             f"ORACLE_SCHEMA_TO_SYNC_{envstr}",
+        ).upper()
+        return database_const
+
+    def get_local_postgres_env_constants(self) -> ConnectionParameters:
+        """
+        Populate constants from the environment.
+
+        These are the constants that are used to connect to the local dockerized
+        postgres databases
+
+        Required variables:
+          * POSTGRES_HOST_LOCAL
+          * POSTGRES_PORT_LOCAL
+          * POSTGRES_DB_LOCAL
+          * POSTGRES_USER_LOCAL
+          * POSTGRES_PASSWORD_LOCAL
+        """
+        database_const = ConnectionParameters
+        envstr = "LOCAL"
+        database_const.host = os.getenv(f"POSTGRES_HOST_{envstr}")
+        database_const.port = os.getenv(f"POSTGRES_PORT_{envstr}")
+        database_const.service_name = os.getenv(
+            f"POSTGRES_DB_{envstr}",
+        )
+        database_const.username = os.getenv(f"POSTGRES_USER_{envstr}")
+        database_const.password = os.getenv(
+            f"POSTGRES_PASSWORD_{envstr}",
         )
         return database_const
 
