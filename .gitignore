@@ -190,3 +190,4 @@ data-population/tests/test_data/forest_cover_geometry.ddb
 data-population/db_env_utils/test_script.py
 data-population/tests/test_data/application.ddb
 data-population/tests/test_data/application.csv
+docker_data_pump_file/dbp01-31-10-24.dmp

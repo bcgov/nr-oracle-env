@@ -53,9 +53,9 @@ services:
       retries: 10
     # Mount a local SQL file to initialize your schema at startup
     volumes:
-      - ./db_init_sql:/container-entrypoint-initdb.d # mount the init scripts
+      - ./docker_comp_ora/dbdock_struct_01:/container-entrypoint-initdb.d # mount the init scripts
       - oracle-data-struct:/opt/oracle/oradata  # Mount the volume to the Oracle data directory
-      - ./data/dbp01-31-10-24.dmp:/dpdata/dump_file.dmp # mount the actual dump file
+      - ./docker_data_pump_file/dbp01-31-10-24.dmp:/dpdata/dump_file.dmp # mount the actual dump file
 
   oracle-dp-import:
     image: gvenzl/oracle-free:latest
@@ -66,7 +66,7 @@ services:
     restart: "no"
     entrypoint: ["/bin/bash", "/opt/oracle/scripts/run_data_pump_import.sh"]
     volumes:
-      - ./data_pump_import/run_data_pump_import.sh:/opt/oracle/scripts/run_data_pump_import.sh
+      - ./docker_comp_ora/data_pump_import/run_data_pump_import.sh:/opt/oracle/scripts/run_data_pump_import.sh
     depends_on:
       oracle:
         condition: service_healthy
@@ -89,7 +89,8 @@ services:
       retries: 10
     # Mount a local SQL file to initialize your schema at startup
     volumes:
-      - ./db_init_test:/container-entrypoint-initdb.d # mount the init scripts
+      - ./docker_comp_ora/dbdock_test_01/init_scripts:/container-entrypoint-initdb.d # mount the init scripts
+      - ./docker_comp_ora/dbdock_test_01/start_scripts:/container-entrypoint-startdb.d # mount the init scripts
       - oracle-test-data-struct:/opt/oracle/oradata  # Mount the volume to the Oracle data directory
 
   oracle-migrations-test:
@@ -97,12 +98,13 @@ services:
     container_name: oracle-migrations-test
     command: info migrate info
     volumes:
-      - "./data-query-tool/data/migrations:/flyway/sql:ro"
+      # - "./data-query-tool/data/migrations:/flyway/sql:ro"
+       - "./project_specific/consep/migrations:/flyway/sql:ro"
     environment:
       <<: *oracle-vars-test
-      FLYWAY_USER: *ORA_USER
+      FLYWAY_USER: CONSEP
       FLYWAY_PASSWORD: *ORA_PASSWORD
-      FLYWAY_DEFAULT_SCHEMA: *ORA_USER
+      FLYWAY_DEFAULT_SCHEMA: CONSEP
       FLYWAY_BASELINE_ON_MIGRATE: true
     depends_on:
       oracle-test:

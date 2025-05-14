@@ -7,9 +7,10 @@ import logging.config
 import pathlib
 
 import packaging.version
+
 from data_query_tool import constants, migration_files, oralib
 
-LOGGER = None
+# LOGGER = None
 
 
 class BatchRun:
@@ -26,7 +27,7 @@ class BatchRun:
         self.migration_folder = migration_folder
 
         LOGGER.debug("migration path: %s", self.migration_folder)
-        self.schema = "THE"
+        self.default_schema = "THE"
         # force a new major version
         self.initial_migration_str = "1.0.0"
 
@@ -48,11 +49,19 @@ class BatchRun:
         # iterates over each new table creating a new migration
         with self.batch_file.open("r") as f:
             for record in f:
-                table_name = record.split(",")[0]
-                table_name = table_name.strip()
-                self.dump_migrations(table_name)
+                table_name_schema = record.split(",")[0]
+                LOGGER.debug("table_name_schema: %s", table_name_schema)
+                table_name_schema = table_name_schema.strip()
+                table_name_schema_list = table_name_schema.split(".")
+                if len(table_name_schema_list) == 2:
+                    table_name = table_name_schema_list[1]
+                    schema = table_name_schema_list[0]
+                else:
+                    table_name = table_name_schema
+                    schema = self.default_schema
+                self.dump_migrations(table_name, schema)
 
-    def dump_migrations(self, seed_table: str) -> None:
+    def dump_migrations(self, seed_table: str, schema: str) -> None:
         """
         Generate a migration file for the seed table.
 
@@ -62,7 +71,7 @@ class BatchRun:
         """
         LOGGER.debug("seed table: %s", seed_table)
         migration_folder = self.migration_folder
-        schema = self.schema.lower()
+        # schema = self.default_schema.lower()
         LOGGER.debug("schema: %s", schema)
         migration_version = self.initial_migration_str
 
@@ -114,26 +123,30 @@ class BatchRun:
 
 
 if __name__ == "__main__":
+    logging_config = pathlib.Path(__file__).parent / "logging.config"
+    logging.config.fileConfig(logging_config)
+    global LOGGER  # noqa: PLW0603
+    LOGGER = logging.getLogger("batch_run")
+
     # config:
     migration_folder = (
         pathlib.Path("__file__").parent
         / ".."
         / "project_specific"
-        / "silva"
-        / "migrations2"
+        / "consep"
+        / "migrations"
     )
 
     batch_table_2_run = (
         pathlib.Path("__file__").parent
         / ".."
         / "project_specific"
-        / "silva"
+        / "consep"
         / "misc"
-        / "origlist_and_ron.txt"
+        / "consep_tables.csv"
     )
-    # /home/kjnether/fsa_proj/nr-fsa-orastruct/project_specific/silva/misc/origlist_and_ron.txt
-    print("table_list", batch_table_2_run)
-    print("migration foler", migration_folder)
+    LOGGER.info("table_list: %s", batch_table_2_run)
+    LOGGER.info("migration folder: %s", migration_folder)
     # raise
     batchrun = BatchRun(
         migration_folder=migration_folder,

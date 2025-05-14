@@ -15,6 +15,7 @@ ORACLE_SERVICE - database service
 
 from __future__ import annotations
 
+import base64
 import datetime
 import json
 import logging
@@ -968,6 +969,11 @@ class OracleDatabase(db_lib.DB):
         :return: a list of the columns for the table
         :rtype: list[str]
         """
+        LOGGER.debug(
+            "getting columns for schema: %s table: %s",
+            self.schema_2_sync,
+            table,
+        )
         self.get_connection()
         cursor = self.connection.cursor()
         query = """
@@ -984,15 +990,21 @@ class OracleDatabase(db_lib.DB):
         """
         cursor.execute(
             query,
-            table_name=table.upper(),
-            schema_name=self.schema_2_sync.upper(),
+            table_name=table,
+            schema_name=self.schema_2_sync,
         )
         results = cursor.fetchall()
-        columns = [row[0].upper() for row in results]
+        LOGGER.debug("number of columns retrieved: %s", len(results))
+        if not results:
+            LOGGER.error("query to get columns: %s", query)
+            LOGGER.debug("table: %s", table)
+            LOGGER.debug("schema: %s", self.schema_2_sync)
+
+        columns = [row[0] for row in results]
         if with_length_precision_scale:
             columns = [
                 [
-                    row[0].upper(),
+                    row[0],
                     constants.ORACLE_TYPES[row[1]],
                     row[2],
                     row[3],
@@ -1002,8 +1014,7 @@ class OracleDatabase(db_lib.DB):
             ]
         elif with_type:
             columns = [
-                [row[0].upper(), constants.ORACLE_TYPES[row[1]]]
-                for row in results
+                [row[0], constants.ORACLE_TYPES[row[1]]] for row in results
             ]
         return columns
 
@@ -1819,7 +1830,7 @@ class DataFrameExtended(pd.DataFrame):
             table_name,
             with_length_precision_scale=True,
         )
-        cols = [column_data_list[0].upper() for column_data_list in column_list]
+        cols = [f'"{column_data_list[0]}"' for column_data_list in column_list]
         insert_placeholders = self.get_value_placeholders(
             column_list=column_list,
         )
@@ -1855,7 +1866,52 @@ class DataFrameExtended(pd.DataFrame):
                 LOGGER.debug("writing to oracle...")
 
                 cursor.setinputsizes(*input_sizes)
-                cursor.executemany(cmd, data)
+                try:
+                    cursor.executemany(cmd, data)
+                    oradb.connection.commit()
+                except DatabaseError as e:
+                    # oracledb.exceptions.DatabaseError
+                    (error_obj,) = e.args
+                    LOGGER.debug(f"error code: %s", error_obj.code)
+                    if error_obj.code == 12899:
+                        # capture the specific ORA-12899 error.  This happens
+                        # with some consep data where binary data is being stored
+                        # in varchar2 columns.  This is a workaround will
+                        # test the data to see if it is "printable" and if not
+                        # then convert to
+
+                        LOGGER.warning(
+                            f"ORA-12899 Error: %s, trying to convert to binary"
+                            " and re-insert",
+                            error_obj.message,
+                        )
+                        LOGGER.debug("first 3 rows of data: %s", data[0:3])
+                        bin_data = self.to_binary()
+                        # rollback any changes made to the database
+                        oradb.connection.rollback()
+                        LOGGER.debug(
+                            "first 3 rows of converted data: %s", bin_data[0:3]
+                        )
+                        # unfortunately for an unknow reason inserting binary
+                        # data into varchar doesn't work with executemany, so
+                        # running a loop to insert each row
+                        for row in bin_data:
+                            # convert the row to a tuple
+                            row = list(row)
+                            try:
+                                cursor.execute(cmd, row)
+                            except:
+                                LOGGER.debug(
+                                    "row: %s",
+                                    row,
+                                )
+                                raise
+
+                        # cursor.executemany(cmd, bin_data)
+                        oradb.connection.commit()
+                    else:
+                        # Re-raise the exception if it's not ORA-12899
+                        raise
                 oradb.connection.commit()
 
             LOGGER.debug("data has been entered, and committed!")
@@ -1883,9 +1939,7 @@ class DataFrameExtended(pd.DataFrame):
         if isinstance(value, numpy.floating):
             return float(value)  # Convert float64 to native float
         if isinstance(value, pd.Timestamp):
-            return datetime.datetime.fromtimestamp(
-                value.timestamp()
-            ).strftime(  # noqa: DTZ006
+            return datetime.datetime.fromtimestamp(value.timestamp()).strftime(  # noqa: DTZ006
                 "%Y-%m-%d %H:%M:%S",
             )
         if pd.isna(value):
@@ -1983,6 +2037,51 @@ class DataFrameExtended(pd.DataFrame):
                     table_data[i][j] = table_data[i][j].hex()
         return table_data
 
+    def to_binary(
+        self,
+    ):
+        """_summary_
+
+        :raises ValueError: _description_
+        :raises ValueError: _description_
+        :raises ValueError: _description_
+        :raises ValueError: _description_
+        :return: _description_
+        :rtype: _type_
+        """
+        LOGGER.debug("encoding possible binary data to binary")
+        data = []  # Initialize an empty list to store the processed rows
+
+        # Iterate over each row in the DataFrame
+        for row in self.itertuples(index=False, name=None):
+            processed_row = []  # Initialize an empty list for the processed row
+
+            # Iterate over each value in the row
+            for val in row:
+                # Convert the value to a type compatible with Oracle
+                converted_val = self.convert_types(val)
+
+                # Check if the value is printable
+                if (
+                    isinstance(converted_val, str)
+                    and converted_val != ""
+                    and converted_val
+                    and any(
+                        ord(char) < 32 and char not in "\n\r\t"
+                        for char in converted_val
+                    )
+                ):
+                    # If not printable, convert it to binary
+                    # AL32UTF8
+                    converted_val = converted_val.encode("utf-8")
+
+                # Append the processed value to the row
+                processed_row.append(converted_val)
+
+            # Convert the processed row to a tuple and add it to the data list
+            data.append(tuple(processed_row))
+        return data
+
 
 class Extractor:
     """
@@ -2051,11 +2150,18 @@ class Extractor:
             # spatial will use a smaller chunk size
             chunk_size = 1000
         query = self.generate_extract_sql_query()
+        ora_cols = self.oradb.get_column_list(self.table_name, with_type=True)
+        if not ora_cols:
+            LOGGER.warning(
+                "no columns found in the schema: %s / table: %s, nothing to extract",
+                self.db_schema,
+                self.table_name,
+            )
+            return False
 
         ddb_util = DuckDbUtil(self.export_file, self.table_name)
         chunk_cnt = 0
 
-        ora_cols = self.oradb.get_column_list(self.table_name, with_type=True)
         ddb_util.create_table(ora_cols)
 
         for chunk_cnt, chunk in enumerate(
@@ -2138,8 +2244,9 @@ class Extractor:
                 select_column_list.append(column_value)
             else:
                 select_column_list.append(column_name)
+        column_list_quoted = [f'"{column}"' for column in select_column_list]
         query = (
-            f"SELECT {', '.join(select_column_list)} from "  # noqa: S608
+            f"SELECT {', '.join(column_list_quoted)} from "  # noqa: S608
             f"{self.db_schema.upper()}.{self.table_name.upper()}"
         )
         LOGGER.debug("query: %s", query)
@@ -2320,6 +2427,7 @@ class Importer:
                     if_exists="append",
                     index=False,
                 )
+
                 chunk_count += 1  # noqa: SIM113
 
                 LOGGER.info("loaded %s rows", chunk_count * self.chunk_size)
@@ -2478,7 +2586,7 @@ class DuckDbUtil:
             ora_type = ora_col[1]
 
             ddb_type = self.get_ddb_type_from_ora_type(ora_type)
-            create_tab_cols.append(f"{ora_name} {ddb_type.name}")
+            create_tab_cols.append(f'"{ora_name}" {ddb_type.name}')
 
         create_table_ddl = (
             f"CREATE TABLE {self.table_name} ( {', '.join(create_tab_cols)})"
@@ -2549,19 +2657,18 @@ class DuckDbUtil:
         """
         if self.spatial_cols is None:
             self.spatial_cols = self.get_spatial_columns()
-        spatial_cols = [col.lower() for col in self.spatial_cols]
+        spatial_cols = [col for col in self.spatial_cols]
         LOGGER.debug("spatial cols: %s", spatial_cols)
         cols = self.get_columns()
         query_cols = []
         for col in cols:
             LOGGER.debug("col: %s", col)
-            if col.lower() in spatial_cols:
+            if col in spatial_cols:
                 # ST_AsText ST_AsWKB
                 query_cols.append(f"ST_AsText({col}) AS {col}")
             else:
-                query_cols.append(col)
+                query_cols.append(f'"{col}"')
         self.query_cols = query_cols
-
         query = f"SELECT {', '.join(self.query_cols)} FROM {self.table_name}"  # noqa: S608
 
         filter_obj = self.get_filterobj_clause()
@@ -2604,10 +2711,12 @@ class DuckDbUtil:
         try:
             spatial_cols_lower = [col.lower() for col in self.spatial_cols]
             LOGGER.debug("spatial column for DDB: %s", spatial_cols_lower)
-
+            insert_cols_quoted = [f'"{col}"' for col in self.insert_cols]
+            # address any extended characters in the data
+            chunk = chunk.applymap(self.encode_to_latin1)
             chunk_insert = f"""
                 INSERT INTO {self.table_name}
-                SELECT {", ".join(self.insert_cols)} from chunk;
+                SELECT {", ".join(insert_cols_quoted)} from chunk;
             """  # noqa: S608
 
             self.ddb_con.sql(chunk_insert)
@@ -2615,6 +2724,15 @@ class DuckDbUtil:
             LOGGER.exception("error inserting data into duckdb")
             LOGGER.debug("chunk causing issues: %s ", chunk)
             raise
+        except duckdb.duckdb.ParserException:  # duckdb.duckdb.DuckDBException:
+            LOGGER.exception("query failed: %s", chunk_insert)
+            LOGGER.debug("chunk causing issues: %s ", chunk)
+            raise
+
+    def encode_to_latin1(self, value):
+        if isinstance(value, str):
+            return value.encode("latin1", errors="replace").decode("latin1")
+        return value
 
 
 class DataClassification:
