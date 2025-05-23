@@ -73,17 +73,18 @@
             "type": "debugpy",
             "redirectOutput": false ,
             "request": "launch",
-            "cwd": "data-query-tool",
+            "cwd": "${workspaceFolder}/data-query-tool",
             "program": "main.py",
             "console": "integratedTerminal",
             "envFile": "${workspaceFolder}/.env",
             "python": "${workspaceFolder}/data-query-tool/.venv/bin/python",
+            // SEEDLOT_GENETIC_WORTH
             "args": [
                 "show-deps",
                 "--seed-object",
-                "HARVESTING_AUTHORITY",
-                "--type",
-                "TAB",
+                "SEEDLOT",
+                "--object-type",
+                "TABLE",
                 "--schema",
                 "THE"
             ]
