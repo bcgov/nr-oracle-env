@@ -90,6 +90,31 @@
             ]
         },
         {
+            "name": "main_make_migrations",
+            "type": "debugpy",
+            "redirectOutput": false ,
+            "request": "launch",
+            "cwd": "${workspaceFolder}/data-query-tool",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/data-query-tool/.venv/bin/python",
+            // SEEDLOT_GENETIC_WORTH
+            "args": [
+                "create-migrations",
+                "--seed-object",
+                "SEEDLOT_GENETIC_WORTH",
+                // "--object-type",
+                // "TABLE",
+                "--schema",
+                "THE",
+                "--migration-folder",
+                "/home/kjnether/fsa_proj/nr-fds-pyetl/ora-env/migrations/ora",
+                "--migration-name",
+                "test_migration",
+            ]
+        },
+        {
             "name": "main_get_dependencies_PKG",
             "type": "debugpy",
             "redirectOutput": false ,
