@@ -28,7 +28,7 @@ class DDLCache:
     Used to cache DDL statements that are generated for a given object.  By
     caching here before writing, allows for re-organization of the output by
     database object type.  For example a dependency list is generated, but the
-    actual creation of any TRIGGERS is always done last.\
+    actual creation of any TRIGGERS is always done last.
     """
 
     # Caches the DDL, and organizes by types to ensure that the
@@ -74,7 +74,9 @@ class DDLCache:
         elif db_object_type == types.ObjectType.TYPE:
             self.db_types.extend(ddl)
         else:
-            LOGGER.debug("unknown object type: %s", db_object_type)
+            LOGGER.debug(
+                "unknown object type: %s, assume table", db_object_type
+            )
             self.ddl_cache.extend(ddl)
 
     def remove_duplicates(
@@ -115,7 +117,7 @@ class DDLCache:
             if ddl_str not in obj_pointer:
                 cleaned_list.append(ddl_str)
             else:
-                LOGGER.debug("found duplicate: %s", ddl_str[0::25])
+                LOGGER.debug("found duplicate: %s ...", ddl_str[0:100])
         return cleaned_list
 
     def get_ddl(self) -> list[types.DDLCachedObject]:
@@ -987,6 +989,19 @@ class Oracle:
                         f" {dependency_obj.object_name}"
                     )
                     raise ValueError(msg)
+            # The current object has dependencies and it is already exported
+            # going to now recurse on the dependencies of the current object
+            # in order to make sure they have all been exported.
+            else:
+                ddl_current = self.create_migrations(
+                    relationships=relation,
+                    object_type_filter=object_type_filter,
+                )
+                if get_ddl:
+                    # write the returned ddl for the dependencies of the
+                    # current object
+                    ddl_cache.merge_caches(ddl_current)
+
         # double check that the current object has not already been exported,
         # if it has not then add the ddl to the cache
         relationships_dep = typing.cast(types.Dependency, relationships)
