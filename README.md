@@ -39,7 +39,7 @@ database.
 
 ### TL;DR
 
-1. get the datapump file, and copy it to `./data/dbp01-31-10-24.dmp`
+1. get the datapump file, and copy it to `./docker_data_pump_file/dbp01-31-10-24.dmp`
 2. first time load of database `docker compose up oracle-dp-import`  (this only needs to take place once)
 3. starting database after load has been completed ``docker compose up oracle`
 

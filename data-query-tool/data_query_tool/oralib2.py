@@ -485,8 +485,7 @@ class Oracle:
         try:
             # calling the method that corresponds with the object type
             deps_obj = self.data_type_handlers[object_type](
-                object_name=object_name,
-                schema=schema,
+                object_name=object_name, schema=schema, parent_obj=parent_obj
             )
             # Now iterate over the dependencies_list
             updated_deps = []
