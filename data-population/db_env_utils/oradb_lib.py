@@ -1939,7 +1939,9 @@ class DataFrameExtended(pd.DataFrame):
         if isinstance(value, numpy.floating):
             return float(value)  # Convert float64 to native float
         if isinstance(value, pd.Timestamp):
-            return datetime.datetime.fromtimestamp(value.timestamp()).strftime(  # noqa: DTZ006
+            return datetime.datetime.fromtimestamp(
+                value.timestamp()
+            ).strftime(  # noqa: DTZ006
                 "%Y-%m-%d %H:%M:%S",
             )
         if pd.isna(value):
@@ -2229,24 +2231,23 @@ class Extractor:
                 constants.ORACLE_TYPES.CLOB,
             ]:
                 select_column_list.append(
-                    f"EMPTY_BLOB() AS {column_name}",
+                    f'EMPTY_BLOB() AS "{column_name}"',
                 )
             elif column_type in [constants.ORACLE_TYPES.SDO_GEOMETRY]:
                 select_column_list.append(
-                    f"SDO_UTIL.TO_WKTGEOMETRY({column_name}) AS {column_name}",
+                    f'SDO_UTIL.TO_WKTGEOMETRY("{column_name}") AS "{column_name}"',
                 )
             elif mask_obj:
                 mask_dummy_val = self.data_cls.get_mask_dummy_val(column_type)
                 column_value = (
-                    f"nvl2({column_name}, {mask_dummy_val}, NULL) as "
-                    f"{column_name.upper()}"
+                    f'nvl2("{column_name}", {mask_dummy_val}, NULL) as '
+                    f'"{column_name.upper()}"'
                 )
                 select_column_list.append(column_value)
             else:
-                select_column_list.append(column_name)
-        column_list_quoted = [f'"{column}"' for column in select_column_list]
+                select_column_list.append(f'"{column_name}"')
         query = (
-            f"SELECT {', '.join(column_list_quoted)} from "  # noqa: S608
+            f"SELECT {', '.join(select_column_list)} from "  # noqa: S608
             f"{self.db_schema.upper()}.{self.table_name.upper()}"
         )
         LOGGER.debug("query: %s", query)
