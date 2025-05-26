@@ -43,6 +43,10 @@ DUCK_DB_SUFFIX = "ddb"
 # name of the directory in object store where the data backup files reside
 OBJECT_STORE_DATA_DIRECTORY = os.getenv("OBJECT_STORE_DATA_DIRECTORY", "pyetl")
 
+# the env var that can contain the path to the data classification file,
+# which is used to determin table/column data classification.
+DATA_CLASSIFICATION_SS = os.getenv("DATA_CLASSIFICATION_SS", None)
+
 # database filter string
 DB_FILTER_STRING = os.getenv("DB_FILTER_STRING", "nr-spar-{env_str}-database")
 # the port to use for the local port when establishing a port forward, and then

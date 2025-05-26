@@ -40,6 +40,14 @@ The data load needs the following environment variables to be defined.
 * ORACLE_SYNC_PASSWORD_LOCAL=default
 * ORACLE_SCHEMA_TO_SYNC_LOCAL=THE
 
+-- optional env vars:
+* OBJECT_STORE_DATA_DIRECTORY - the path in object store where the data files
+    should be imported / exported from
+* DATA_CLASSIFICATION_SS - the path to the data classification spreadsheet
+* LOCAL_DATA_DIR - the local path where data will be cached after it has
+    been retrieved from object store.
+
+
 ### 2. Database
 
 The oracle test database needs to up and runing.
