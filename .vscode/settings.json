@@ -1,4 +1,15 @@
 {
+
+    "files.trimTrailingWhitespace": true,
+    "python.linting.enabled": true,
+    "python.linting.ruffEnabled": true,
+    "python.linting.ruffPath": "ruff", // or the full path to your ruff binary if not in PATH
+    "python.linting.lintOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports.ruff": "explicit"
+    },
+    "ruff.organizeImports": true,
+
     "editor.hover.enabled": false,
     "editor.rulers": [
         80,
@@ -7,20 +18,7 @@
     "editor.codeActionsOnSave": {
         "source.organizeImports": "explicit"
     },
-    //"editor.trimTrailingWhitespace": true,
 
-    // ****************************************************************
-    //   data-query-tool
-    // ****************************************************************
-    // "python.defaultInterpreterPath": "./data-query-tool/.venv/bin/python",
-    // "python.testing.pytestArgs": [
-    //     "./data-query-tool",
-    // ],
-    // "python.envFile": "${workspaceFolder}/data-query-tool/.env",
-
-    // ****************************************************************
-    //   data-population
-    // ****************************************************************
     "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
     "python.testing.pytestArgs": [
         "./data-population"
@@ -47,7 +45,6 @@
 
     "ruff.organizeImports": false,
     "autoDocstring.docstringFormat": "sphinx",
-    "files.trimTrailingWhitespace": true,
     // "ruff.args": [
     //     "--unfixable=F401,D212", "--extend-ignore=D200,D202,D212"
     // ],
@@ -73,5 +70,10 @@
         "debug.useNodeFetcher": true,
         "debug.useNodeFetchFetcher": false
     },
+    "files.associations": {
+        "*.xlsx": "excel",
+        "*.xls": "excel"
+    },
+
 }
 
