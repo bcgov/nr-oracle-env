@@ -1,20 +1,32 @@
-"""Retrieve, read, and consolidate data classification information that
-is originally derived from the SharePoint site.
+"""
+Retrieve, read, and consolidate data classification information.
+
+Reads through ss pulled from the sharepoint site:
+https://bcgov.sharepoint.com/teams/03678/Shared%20Documents/Forms/AllItems.aspx?id=%2Fteams%2F03678%2FShared%20Documents%2FGeneral%2FData%20Classifications%2FForests%5FTest%5FData%5FRefresh%2FData%5FClassification%5FSpreadsheets%2FApproved%5Fby%5FSecurity&viewid=d81a9f32%2Dd7fe%2D490a%2Dbf22%2Dcea9e64a79d5&csf=1&web=1&e=LprZSo&ovuser=6fdb5200%2D3d0d%2D4a8a%2Db036%2Dd3685e359adc%2CKevin%2ENetherton%40gov%2Ebc%2Eca&OR=Teams%2DHL&CT=1752704712726&clickparams=eyJBcHBOYW1lIjoiVGVhbXMtRGVza3RvcCIsIkFwcFZlcnNpb24iOiI0OS8yNTA2MTIxNjQyMSIsIkhhc0ZlZGVyYXRlZFVzZXIiOmZhbHNlfQ%3D%3D&CID=4578b2a1%2D40c2%2D9000%2D550d%2D2664c4b6e918&cidOR=SPO&FolderCTID=0x012000661E056E05762A4C9AEB04E04A706D67
+
 """
 
+import enum
+import json
 import logging
 import logging.config
 import pathlib
-import sys
+
 import openpyxl
-import enum
-import pprint
-import json
+import openpyxl.worksheet
+import openpyxl.worksheet.worksheet
+
+import config
 
 logger = logging.getLogger(__name__)
 
 
+
 class DataClasses(enum.Enum):
+    """
+    Enum class for data classifications.
+    """
+
     PUBLIC = 1
     A = 2
     B = 3
@@ -23,13 +35,17 @@ class DataClasses(enum.Enum):
 
 
 class DataClassifications:
-    """A utility class to store data classification information.
+    """
+    A utility class to store data classification information.
 
     The structure is used to store data classification information will be a
     table_name -> column name - > security_classification mapping.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Construct DataClassifications object.
+        """
         self.struct = {}
         self.public_security_classification_values = [
             "NONE",
@@ -59,8 +75,9 @@ class DataClassifications:
         self.public_security_classification_values.append(None)
 
     def add_classification(
-        self, table_name, column_name_str, security_classification_str
-    ):
+        self, table_name: str, column_name_str: str,
+        security_classification_str: str,
+    ) -> None:
         """Add a data classification to the structure."""
         logger.debug("sc is: %s", security_classification_str)
         security_classification = self.get_security_classification(
@@ -79,7 +96,8 @@ class DataClassifications:
                 < security_classification.value
             ):
                 logger.warning(
-                    "Overwriting existing security classification %s for table %s, column %s with %s",
+                    "Overwriting existing security classification %s for "
+                    "table %s, column %s with %s",
                     existing_security_classification.name,
                     table_name,
                     column_name_str,
@@ -90,13 +108,16 @@ class DataClassifications:
                 )
             else:
                 logger.info(
-                    "Not overwriting existing security classification %s for table %s, column %s",
+                    "Not overwriting existing security classification %s for"
+                    "table %s, column %s",
                     existing_security_classification.name,
                     table_name,
                     column_name_str,
                 )
 
-    def get_security_classification(self, security_classification_str):
+    def get_security_classification(self,
+                                    security_classification_str: str,
+                                    ) -> DataClasses:
         """Get the security classification from the string."""
         logger.debug("security classification: %s", security_classification_str)
         try:
@@ -109,7 +130,8 @@ class DataClassifications:
                 in self.public_security_classification_values
             ):
                 logger.debug(
-                    "Security classification is public or not set, returning PUBLIC"
+                    "Security classification is public or not set, returning"
+                    " PUBLIC",
                 )
                 return DataClasses.PUBLIC
             if security_classification_str in self.a_values:
@@ -132,16 +154,14 @@ class DataClassifications:
                 )
                 return DataClasses.C
             return DataClasses[security_classification_str.upper()]
-        except KeyError:
-            logger.error(
+        except KeyError as exc:
+            logger.exception(
                 "Invalid security classification: %s",
                 security_classification_str,
             )
-            raise ValueError(
-                f"Invalid security classification: {security_classification_str}"
-            )
+            raise KeyError from exc
 
-    def dump_struct(self, dest_doc, indent=2):
+    def dump_struct(self, dest_doc: pathlib.Path, indent: int = 2) -> None:
         """Dump the structure to a JSON file."""
         logger.info("Dumping data classification structure to %s", dest_doc)
 
@@ -151,18 +171,25 @@ class DataClassifications:
             for column_name, security_classification in columns.items():
                 struct[table_name][column_name] = security_classification.name
 
-        with open(dest_doc, "w") as f:
+        with dest_doc.open("w") as f:
             json.dump(struct, f, indent=indent)
         logger.info("Data classification structure dumped successfully.")
 
 
-class Consoldate_DC:
+class ConsoldateDC:
+    """
+    Consolidate data classification information from Excel files.
+    """
+
     def __init__(
         self,
-        src_dir,
-        dest_doc,
-    ):
-        """ """
+        src_dir: pathlib.Path,
+        dest_doc: pathlib.Path,
+    ) -> None:
+        """
+        Construct ConsoldateDC object.
+        """
+
         self.src_dir = src_dir
         self.dest_doc = dest_doc
 
@@ -176,10 +203,16 @@ class Consoldate_DC:
         # but the one we care about is the data classification sheet
         self.wb_dc_sheet = {}
 
-    def consolidate(self):
-        """Consolidate data classification information from the source directory
-        and write it to the destination document.
+    def consolidate(self) -> None:
         """
+        Consolidate data classification information.
+
+        Reads the files in the source directory, and attempts to parse data
+        classification information from all the Excel files in the directory,
+        and eventually extract the data classification information and writes
+        it to the destination document. (json)
+        """
+
         logger.info("Consolidating data classification information...")
         logger.debug("Source directory: %s", self.src_dir)
         suffix = ".xlsx"
@@ -194,31 +227,25 @@ class Consoldate_DC:
             indent=2,
         )
 
-    def read_xl_file(self, xl_file: pathlib.Path):
-        """Read an Excel file and return its content."""
+    def read_xl_file(self, xl_file: pathlib.Path) -> None:
+        """
+        Read an Excel file and return its content.
+        """
+
         logger.info("Reading Excel file: %s", xl_file)
-        # Implement the logic to read the Excel file
-        # For now, just return a placeholder
-        # wb = xlrd.open_workbook(xl_file)
         wb = openpyxl.load_workbook(xl_file, read_only=True)
         sheet_names = wb.sheetnames
         logger.debug("Sheet names: %s", sheet_names)
         wb_verified = False
-        wb_verified_sheet = None
         for sheet_name in sheet_names:
             sheet = wb[sheet_name]
             logger.debug("Processing sheet: %s", sheet)
-            # ws = wb.sheet_by_name(sheet)  # or wb.sheet_by_index(0)
             if self.has_data(sheet):
                 # Process the worksheet if it has data
                 logger.debug("Processing sheet: %s", sheet_name)
-                # Here you would implement the logic to process the worksheet
-                # For example, count non-empty cells or extract specific data
-                # count = self.count_non_empty_cells(ws)
-                # logger.debug("Non-empty cells in %s: %d", sheet, count)
+                # verifies that it has a re
                 if self.verify_sheet(sheet):
                     wb_verified = True
-                    wb_verified_sheet = sheet
                     if xl_file.name not in self.wb_dc_sheet:
                         self.wb_dc_sheet[xl_file.name] = []
                     self.wb_dc_sheet[xl_file.name].append(sheet_name)
@@ -228,76 +255,20 @@ class Consoldate_DC:
                 "No valid worksheet found in workbook %s with required columns",
                 xl_file,
             )
-            raise ValueError(
-                f"No valid worksheet found in workbook {xl_file} with required"
-                "columns"
-            )
-        # pprint.PrettyPrinter(indent=2).pprint(self.wb_dc_sheet)
+            raise ValueError
         for sheet_name in self.wb_dc_sheet[xl_file.name]:
             sheet = wb[sheet_name]
             logger.debug("Extracting data from sheet: %s", sheet_name)
             # Extract data from the verified sheet
-            self.extract_data(sheet, sheet_name, workbook_name=xl_file)
+            self.extract_data(sheet, sheet_name)
 
-    def verify_sheet_old(self, ws):
-        # Table	Column
-
-        schema_columns = [
-            "SCHEMA",
-            "OWNER",
-        ]
-        # TABLE_NAME
-
-        table_name_columns = ["TABLE_NAME", "TABLE", "TABLE NAME"]
-        column_name_columns = ["COLUMN_NAME", "COLUMN", "COLUMN NAME"]
-        security_class = [
-            "INFO SECURITY CLASS",
-            "CLASSIFICATION",
-            "Information Security Classification",
-            "ISC",
-        ]
-        # Information Security Classification
-
-        required_columns = {
-            # "schema_columns": schema_columns,
-            "table_name_columns": table_name_columns,
-            "column_name_columns": column_name_columns,
-            "security_class": security_class,
-        }
-        required_columns_exist = {
-            # "schema_columns": False,
-            "table_name_columns": False,
-            "column_name_columns": False,
-            "security_class": False,
-        }
-        # look in the first row of the worksheet for the required columns
-        first_row = next(ws.iter_rows(max_row=1, values_only=True), None)
-        logger.debug("First row: %s", first_row)
-        for idx, cell_value in enumerate(first_row):
-            if cell_value:
-                cell_value = cell_value.upper()
-                logger.debug("Cell value: %s", cell_value)
-                for key, columns in required_columns.items():
-                    logger.debug("key: %s", key)
-                    logger.debug("columns: %s", columns)
-                    if cell_value.upper() in [
-                        column.upper() for column in columns
-                    ]:
-                        required_columns_exist[key] = True
-                        logger.debug("found column %s in position %s", key, idx)
-
-        for key in required_columns_exist.keys():
-            if not required_columns_exist[key]:
-                logger.error(
-                    "Required column %s not found in worksheet %s",
-                    key,
-                    ws.title,
-                )
-                return False
-        return True
-
-    def extract_data(self, ws, sheet_name, workbook_name=None):
-        """Extract data from the worksheet and store it in the structure."""
+    def extract_data(self,
+                     ws: openpyxl.worksheet.worksheet.Worksheet,
+                     sheet_name: str,
+                     ) -> None:
+        """
+        Extract data from the worksheet and store it in the structure.
+        """
         logger.debug("Extracting data from sheet: %s", sheet_name)
         column_indicies = self.get_column_indexes(ws)
         logger.debug("Column indexes: %s", column_indicies)
@@ -316,7 +287,8 @@ class Consoldate_DC:
 
             if not table_name or not column_name:
                 logger.warning(
-                    "Skipping row with missing schema, table name, or column name: %s",
+                    "Skipping row with missing schema, table name, or column"
+                    " name: %s",
                     row,
                 )
                 continue
@@ -334,15 +306,35 @@ class Consoldate_DC:
                 security_classification_value,
             )
 
-    def verify_sheet(self, ws):
+    def verify_sheet(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> bool:
+        """
+        Verify that the worksheet has the required columns.
+
+        Looks through the worksheet for the required columns:
+        - TABLE_NAME
+        - COLUMN_NAME
+        - SECURITY_CLASSIFICATION
+
+        Uses the get_column_indexes to identify the positions of these columns.
+        If the required columns are not found, it logs an error and returns
+        False.
+
+        The get_column_indexes() method contains mapping for the various
+        column names that are used in the spreadsheets encountered so far.
+
+        :param ws: input spreadsheet worksheet to verify
+        :type ws: openpyxl.worksheet.worksheet.Worksheet
+        :return: boolean indicating if the worksheet has the required columns
+        :rtype: bool
+        """
         columns_idx = self.get_column_indexes(ws, no_raise=True)
-        if len(columns_idx) != 3:
+        if len(columns_idx) != len(config.ColumnIndexKeys):
             logger.error(
                 "Required columns not found in worksheet %s",
                 ws.title,
             )
             return False
-        for key in columns_idx.keys():
+        for key in columns_idx:
             if columns_idx[key] is None:
                 logger.error(
                     "Required column %s not found in worksheet %s",
@@ -352,26 +344,23 @@ class Consoldate_DC:
                 return False
         return True
 
-    def get_column_indexes(self, ws, no_raise=False):
-        """Get the column indexes for the required columns."""
-        # schema_columns = [
-        #     "SCHEMA",
-        #     "OWNER",
-        # ]
-        table_name_columns = ["TABLE_NAME", "TABLE", "TABLE NAME"]
-        column_name_columns = ["COLUMN_NAME", "COLUMN", "COLUMN NAME"]
-        security_class = [
-            "INFO SECURITY CLASS",
-            "CLASSIFICATION",
-            "Information Security Classification",
-            "ISC",
-        ]
+    def get_column_indexes(
+            self,
+            ws: openpyxl.worksheet.worksheet.Worksheet,
+            no_raise: bool=False) -> dict[str, int]:  # noqa: FBT001 FBT002
+        """
+        Get the column indexes for the required columns.
+        """
 
+        table_name_columns = config.TABLE_COLUMN_NAMES
+        column_name_columns = config.COLUMN_COLUMN_NAMES
+        security_class = config.SECURITY_CLASSIFICATION_COLUMN_NAMES
+
+        col_idx_enum = config.ColumnIndexKeys
         column_indexes = {
-            # "schema": None,
-            "table_name": None,
-            "column_name": None,
-            "security_classification": None,
+            col_idx_enum.TABLE_NAME.value: None,
+            col_idx_enum.COLUMN_NAME.value: None,
+            col_idx_enum.SECURITY_CLASSIFICATION.value: None,
         }
 
         column_name_columns = [col.upper() for col in column_name_columns]
@@ -379,42 +368,39 @@ class Consoldate_DC:
         table_name_columns = [col.upper() for col in table_name_columns]
 
         for row in ws.iter_rows(max_row=1, values_only=True):
-            for idx, cell_value in enumerate(row):
-                if cell_value:
-                    cell_value = cell_value.upper()
-                    # if cell_value in schema_columns:
-                    #     column_indexes["schema"] = idx
+            for idx, cell_value_raw in enumerate(row):
+                if cell_value_raw:
+                    cell_value = cell_value_raw.upper()
                     if cell_value in table_name_columns:
-                        column_indexes["table_name"] = idx
+                        column_indexes[col_idx_enum.TABLE_NAME.value] = idx
                     elif cell_value in column_name_columns:
-                        column_indexes["column_name"] = idx
+                        column_indexes[col_idx_enum.COLUMN_NAME.value] = idx
                     elif cell_value in security_class:
-                        column_indexes["security_classification"] = idx
+                        column_indexes[
+                            col_idx_enum.SECURITY_CLASSIFICATION.value] = idx
                         logger.debug("sec class found at index %s", idx)
 
         logger.debug("Column indexes: %s", column_indexes)
         if (
-            column_indexes["table_name"] is None
-            or column_indexes["column_name"] is None
-            or column_indexes["security_classification"] is None
+            column_indexes[col_idx_enum.TABLE_NAME.value] is None
+            or column_indexes[col_idx_enum.COLUMN_NAME.value] is None
+            or column_indexes[col_idx_enum.SECURITY_CLASSIFICATION.value]
+            is None
         ):
             logger.error(
                 "Required columns not found in worksheet %s",
                 ws.title,
             )
             if not no_raise:
-                raise ValueError(
-                    f"Required columns not found in worksheet {ws.title}"
-                )
+                raise ValueError
         logger.debug("Final column indexes: %s", column_indexes)
         return column_indexes
 
-    def has_data(self, ws):
+    def has_data(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> bool:
         """Check if worksheet has data using openpyxl."""
         # Check if worksheet has any cells with values
         for row in ws.iter_rows():
             if row:
-                # logger.debug("Row: %s %s", row[0], type(row[0]))
                 if (
                     row[0].value
                     and row[1].value
@@ -422,12 +408,13 @@ class Consoldate_DC:
                     and row[1].value.upper() == "DEFINITIONS"
                 ):
                     logger.debug(
-                        "Skipping row with CLASSIFICATIONS and DEFINITIONS headers"
+                        "Skipping row with CLASSIFICATIONS and DEFINITIONS"
+                        " headers",
                     )
                     # Classifications	Definitions
-                    # this is an indicator that the data classfication template sheet
-                    # which contains metadata about the data classification is the
-                    # current sheet
+                    # this is an indicator that the data classfication template
+                    # sheet which contains metadata about the data
+                    # classification is the current sheet
                     return False
                 for cell in row:
                     if cell.value is not None and str(cell.value).strip():
@@ -436,11 +423,6 @@ class Consoldate_DC:
 
 
 if __name__ == "__main__":
-    # if len(sys.argv) != 3:
-    #     print(
-    #         "Usage: python consolidate_data_classification.py <src_dir> <dest_doc>"
-    #     )
-    #     sys.exit(1)
     logging_config_file = pathlib.Path("__file__").parent / "logging.config"
     logging.config.fileConfig(logging_config_file)
     logger = logging.getLogger("main")
@@ -461,7 +443,7 @@ if __name__ == "__main__":
         / "consolidated_data_classification.json"
     )
 
-    consolidator = Consoldate_DC(src_dir, dest_doc)
+    consolidator = ConsoldateDC(src_dir, dest_doc)
     consolidator.consolidate()
     # Here you would call methods to perform the consolidation
     # e.g., consolidator.consolidate()
