@@ -8,42 +8,37 @@
     "editor.codeActionsOnSave": {
         "source.organizeImports.ruff": "explicit"
     },
-    "ruff.organizeImports": true,
 
     "editor.hover.enabled": false,
     "editor.rulers": [
         80,
         120
     ],
-    "editor.codeActionsOnSave": {
-        "source.organizeImports": "explicit"
-    },
 
-    "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
+    // "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
+    // "python.testing.pytestArgs": [
+    //     "./data-population"
+    // ],
+    // "python.envFile": "${workspaceFolder}/data-population/.env",
+
+
+    "python.defaultInterpreterPath": "./utils/.venv/bin/python",
     "python.testing.pytestArgs": [
-        "./data-population"
+        "./utils"
     ],
-    "python.envFile": "${workspaceFolder}/data-population/.env",
+    "python.envFile": "${workspaceFolder}/utils/.env",
 
-    "[python]": {
-        // "editor.defaultFormatter": "ms-python.black-formatter",
-        "editor.defaultFormatter": "charliermarsh.ruff",
-        "editor.formatOnSave": true,
-        "editor.codeActionsOnSave": {
-            "source.organizeImports": "explicit"
-        },
 
-    },
-    // "isort.args":["--profile", "black"],
-    // "python.formatting.provider": "black",
+    // "[python]": {
+    //     // "editor.defaultFormatter": "ms-python.black-formatter",
+    //     "editor.formatOnSave": true,
+
+    // },
     "ruff.codeAction.disableRuleComment": {
         "enable": true
     },
-    "ruff.ignoredPaths": ["junk*"],
-    "python.linting.enabled": true,
-    "python.linting.ruffEnabled": true,
 
-    "ruff.organizeImports": false,
+    "ruff.organizeImports": true,
     "autoDocstring.docstringFormat": "sphinx",
     // "ruff.args": [
     //     "--unfixable=F401,D212", "--extend-ignore=D200,D202,D212"
@@ -61,9 +56,6 @@
     "problems.ignore": [
         "**/junk*"
     ],
-    "files.associations": {
-        "**/junk*": ""
-    },
     "terminal.integrated.scrollback": 10000,
     "debug.console.maxHistoryItems": 10000,
     "github.copilot.advanced": {
