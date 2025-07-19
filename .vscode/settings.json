@@ -1,53 +1,45 @@
 {
+
+    "files.trimTrailingWhitespace": true,
+    "python.linting.enabled": true,
+    "python.linting.ruffEnabled": true,
+    "python.linting.ruffPath": "ruff", // or the full path to your ruff binary if not in PATH
+    "python.linting.lintOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports.ruff": "explicit"
+    },
+
     "editor.hover.enabled": false,
     "editor.rulers": [
         80,
         120
     ],
-    "editor.codeActionsOnSave": {
-        "source.organizeImports": "explicit"
-    },
-    //"editor.trimTrailingWhitespace": true,
 
-    // ****************************************************************
-    //   data-query-tool
-    // ****************************************************************
-    // "python.defaultInterpreterPath": "./data-query-tool/.venv/bin/python",
+    // "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
     // "python.testing.pytestArgs": [
-    //     "./data-query-tool",
+    //     "./data-population"
     // ],
-    // "python.envFile": "${workspaceFolder}/data-query-tool/.env",
+    // "python.envFile": "${workspaceFolder}/data-population/.env",
 
-    // ****************************************************************
-    //   data-population
-    // ****************************************************************
-    "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
+
+    "python.defaultInterpreterPath": "./utils/.venv/bin/python",
     "python.testing.pytestArgs": [
-        "./data-population"
+        "./utils"
     ],
-    "python.envFile": "${workspaceFolder}/data-population/.env",
+    "python.envFile": "${workspaceFolder}/utils/.env",
 
-    "[python]": {
-        // "editor.defaultFormatter": "ms-python.black-formatter",
-        "editor.defaultFormatter": "charliermarsh.ruff",
-        "editor.formatOnSave": true,
-        "editor.codeActionsOnSave": {
-            "source.organizeImports": "explicit"
-        },
 
-    },
-    // "isort.args":["--profile", "black"],
-    // "python.formatting.provider": "black",
+    // "[python]": {
+    //     // "editor.defaultFormatter": "ms-python.black-formatter",
+    //     "editor.formatOnSave": true,
+
+    // },
     "ruff.codeAction.disableRuleComment": {
         "enable": true
     },
-    "ruff.ignoredPaths": ["junk*"],
-    "python.linting.enabled": true,
-    "python.linting.ruffEnabled": true,
 
-    "ruff.organizeImports": false,
+    "ruff.organizeImports": true,
     "autoDocstring.docstringFormat": "sphinx",
-    "files.trimTrailingWhitespace": true,
     // "ruff.args": [
     //     "--unfixable=F401,D212", "--extend-ignore=D200,D202,D212"
     // ],
@@ -64,14 +56,16 @@
     "problems.ignore": [
         "**/junk*"
     ],
-    "files.associations": {
-        "**/junk*": ""
-    },
     "terminal.integrated.scrollback": 10000,
     "debug.console.maxHistoryItems": 10000,
     "github.copilot.advanced": {
         "debug.useNodeFetcher": true,
         "debug.useNodeFetchFetcher": false
     },
+    "files.associations": {
+        "*.xlsx": "excel",
+        "*.xls": "excel"
+    },
+
 }
 

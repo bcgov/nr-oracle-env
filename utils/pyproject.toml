@@ -1,0 +1,51 @@
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # Relax the convention by _not_ requiring documentation for every function parameter.
+    "D200","D202","D212","ICN001"
+]
+extend-select = ["I"]
+
+
+[tool.ruff]
+line-length = 80
+
+
+# Ignore some errors in tests as they are not relevant
+[tool.ruff.lint.extend-per-file-ignores]
+"**/tests/**/*.py" = [
+    # at least this three should be fine in tests:
+    "S101", # asserts allowed in tests...
+    "S105", # local dev password fields are verified
+    "ARG", # Unused function args -> fixtures nevertheless are functionally relevant...
+    "FBT", # Don't care about booleans as positional arguments in tests, e.g. via @pytest.mark.parametrize()
+    # The below are debateable
+    "PLR2004", # Magic value used in comparison, ...
+    "S311", # Standard pseudo-random generators are not suitable for cryptographic purposes
+]
+
+[project]
+authors = [
+    {name = "Your Name", email = "you@example.com"},
+]
+license = {text = "Apache License 2.0"}
+requires-python = "<4.0,>=3.11"
+dependencies = [
+    "msal>=1.32.3",
+    "openpyxl>=3.1.5",
+    "requests>=2.32.4",
+]
+name = "orastruct_util"
+version = "0.1.0"
+description = "utilities for orastruct_util"
+readme = "README.md"
+package-mode = false
+
+[dependency-groups]
+dev = [
+    "black<25.0.0,>=24.8.0",
+    "ruff<1.0.0,>=0.8.0",
+    "mypy-boto3<2.0.0,>=1.35.38",
+    "pytest>=8.3.3,<9.0.0",
+    "python-dotenv>=1.1.0",
+]
