@@ -45,7 +45,7 @@ OBJECT_STORE_DATA_DIRECTORY = os.getenv("OBJECT_STORE_DATA_DIRECTORY", "pyetl")
 
 # the env var that can contain the path to the data classification file,
 # which is used to determin table/column data classification.
-DATA_CLASSIFICATION_SS = os.getenv("DATA_CLASSIFICATION_SS", None)
+DATA_CLASSIFICATION_DOC = os.getenv("DATA_CLASSIFICATION_JSON", None)
 
 # database filter string
 DB_FILTER_STRING = os.getenv("DB_FILTER_STRING", "nr-spar-{env_str}-database")
@@ -53,6 +53,12 @@ DB_FILTER_STRING = os.getenv("DB_FILTER_STRING", "nr-spar-{env_str}-database")
 # for connecting to the database that is in kubernetes
 DB_LOCAL_PORT = 5433
 
+# number of seconds to wait between table object extractions
+DATA_PULL_PAUSE = 1
+
+# if set to True will attempt to resolve integrity constraints by deleting rows
+# that violate the constraints
+FIX_INTEGRITY_ERRORS = True
 
 # database types, used to identify which database (oc_postgres or oracle) is
 # to be worked with
@@ -67,6 +73,17 @@ class DBType(Enum):
 
     ORA = 1
     OC_POSTGRES = 2
+
+class DataClassificationDocumentType(Enum):
+    """
+    Define the document types that are supported.
+
+    An enumeration of the different document types that are supported by the
+    scripts in this project.
+    """
+
+    EXCEL = 1
+    JSON = 2
 
 
 PYTHON_PYARROW_TYPE_MAP = {
@@ -109,6 +126,8 @@ DB_TYPE_PYARROW_MAP = {
 # columns that were removed:
 #   - FOREST_CLIENT.REGISTRY_COMPANY_TYPE_CODE
 #   - FOREST_CLIENT.CLIENT_ID_TYPE_CODE
+# DATA_TO_MASK = []
+
 DATA_TO_MASK = [
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
@@ -116,98 +135,98 @@ DATA_TO_MASK = [
         column_name="CLIENT_LOCN_NAME",
         faker_method=lambda: " ".join(fake.words(nb=3)),
         percent_null=90,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="ADDRESS_1",
         faker_method=lambda: fake.address().split("\n")[0],
         percent_null=0,
-    ),
+    ),# good
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="ADDRESS_2",
         faker_method=lambda: fake.address().split("\n")[1].split(",")[0],
         percent_null=80,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="ADDRESS_3",
         faker_method=lambda: fake.address().split("\n")[1].split(",")[1],
         percent_null=90,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="CITY",
         faker_method=lambda: fake.city(),
         percent_null=0,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="POSTAL_CODE",
         faker_method=lambda: fake.postalcode(),
         percent_null=0,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="HOME_PHONE",
         faker_method=lambda: "".join(filter(str.isdigit, fake.phone_number())),
         percent_null=90,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="CELL_PHONE",
         faker_method=lambda: "".join(filter(str.isdigit, fake.phone_number())),
         percent_null=95,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="FAX_NUMBER",
         faker_method=lambda: "".join(filter(str.isdigit, fake.phone_number())),
         percent_null=95,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="EMAIL_ADDRESS",
         faker_method=lambda: fake.ascii_email(),
         percent_null=95,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="CLIENT_LOCATION",
         schema="THE",
         column_name="CLI_LOCN_COMMENT",
         faker_method=lambda: fake.sentence(),
         percent_null=40,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="LEGAL_FIRST_NAME",
         faker_method=lambda: fake.first_name(),
         percent_null=40,
-    ),
+    ),  # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="LEGAL_MIDDLE_NAME",
         faker_method=lambda: fake.first_name(),
         percent_null=60,
-    ),
+    ),  # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="LEGAL_LAST_NAME",
         faker_method=lambda: fake.last_name(),
         percent_null=0,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -217,21 +236,21 @@ DATA_TO_MASK = [
             datetime_end="-20y",
         ).strftime("%Y-%m-%d 00:00:00"),
         percent_null=80,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CLIENT_COMMENT",
         faker_method=lambda: fake.sentence(),
         percent_null=80,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CLIENT_IDENTIFICATION",
         faker_method=lambda: fake.ssn(),
         percent_null=95,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -240,7 +259,7 @@ DATA_TO_MASK = [
             random.randrange(1000, 10000),  # noqa: S311
         ),
         percent_null=60,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -249,7 +268,7 @@ DATA_TO_MASK = [
             random.choices(string.ascii_letters, k=8),  # noqa: S311
         ).upper(),
         percent_null=80,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -258,7 +277,7 @@ DATA_TO_MASK = [
             random.randrange(1000, 100000),  # noqa: S311
         ),
         percent_null=90,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -267,14 +286,14 @@ DATA_TO_MASK = [
             random.randrange(1000, 100000000),  # noqa: S311
         ),
         percent_null=95,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
         column_name="CLIENT_COMMENT",
         faker_method=lambda: fake.sentence(),
         percent_null=95,
-    ),
+    ), # good
     data_types.DataToMask(
         table_name="FOREST_CLIENT",
         schema="THE",
@@ -290,14 +309,14 @@ DATA_TO_MASK = [
         percent_null=0,
         ignore=True,
     ),
-    # data_types.DataToMask(
-    #     table_name="MAILING_CITY",
-    #     schema="THE",
-    #     column_name="CITY_NAME",
-    #     faker_method=None,
-    #     percent_null=0,
-    #     ignore=True,
-    # ),
+    data_types.DataToMask(
+        table_name="MAILING_CITY",
+        schema="THE",
+        column_name="CITY_NAME",
+        faker_method=None,
+        percent_null=0,
+        ignore=True,
+    ),
     data_types.DataToMask(
         table_name="MAILING_CITY",
         schema="THE",
@@ -321,7 +340,7 @@ DATA_TO_MASK = [
         faker_method=None,
         percent_null=0,
         ignore=True,
-    ),
+    ), # NOPE
     data_types.DataToMask(
         table_name="CLIENT_RELATIONSHIP_TYPE_XREF",
         schema="THE",
@@ -377,6 +396,55 @@ DATA_TO_MASK = [
         faker_method=None,
         percent_null=0,
         ignore=True,
+    ),
+    data_types.DataToMask(
+        table_name="HISTORIC_APPRAISED_WORKSHEET",
+        schema="THE",
+        column_name="TIMBER_MARK",
+        faker_method=None,
+        percent_null=0,
+        ignore=True,
+    ),
+    data_types.DataToMask(
+        table_name="NON_APPRAISED_WORKSHEET",
+        schema="THE",
+        column_name="TIMBER_MARK",
+        faker_method=None,
+        percent_null=0,
+        ignore=True,
+    ),
+    data_types.DataToMask(
+        table_name="APPRAISED_STUMPAGE_RATE",
+        schema="THE",
+        column_name="STUMPAGE_RATE_EFFECTIVE_DATE",
+        faker_method=lambda: fake.unique.date_time_between_dates(
+            datetime_start="-70y",
+            datetime_end="-2d",
+        ).strftime("%Y-%m-%d %H:%M:%S"),
+        percent_null=0,
+    ), # good
+    data_types.DataToMask(
+        table_name="EXPORT_PURCHASE_OFFER",
+        schema="THE",
+        column_name="COMPANY_NAME",
+        faker_method=lambda: fake.unique.name(),
+        percent_null=80,
+    ),
+    data_types.DataToMask(
+        table_name="EXPORT_PURCHASE_OFFER",
+        schema="THE",
+        column_name="CONTACT_NAME",
+        faker_method=lambda: fake.unique.name(),
+        percent_null=80,
+    ),
+    data_types.DataToMask(
+        table_name="APPRAISAL_DATA_SUBMISSION",
+        schema="THE",
+        column_name="ADS_LOCATION_DISTANCE_AVERAGE",
+        faker_method=lambda: str(
+            random.randrange(99, 9999),  # noqa: S311
+        ),
+        percent_null=0,
     ),
 ]
 
@@ -455,12 +523,12 @@ ORACLE_TYPES_TO_DDB_TYPES = {
 ORACLE_TYPES_DEFAULT_FAKER = {
     ORACLE_TYPES.VARCHAR2: lambda: fake.word(),
     ORACLE_TYPES.DATE: lambda: fake.date_time_this_century().strftime(
-        "%Y-%m-%d 00:00:00",
+        "%Y-%m-%d %H:%M:00",
     ),
     ORACLE_TYPES.NUMBER: lambda: random.randint(0, 100000),  # noqa: S311
     ORACLE_TYPES.CHAR: lambda: fake.word(),
     ORACLE_TYPES.TIMESTAMP: lambda: fake.date_time_this_century().strftime(
-        "%Y-%m-%d 00:00:00",
+        "%Y-%m-%d %H:%M:00",
     ),
     ORACLE_TYPES.LONG: lambda: fake.word(),
 }
@@ -509,5 +577,125 @@ BIG_DATA_FILTERS = [
             "ADD_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
         ),
         ddb_where_clause="ADD_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="CUT_BLOCK_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "UPDATE_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="UPDATE_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="APPRAISED_WORKSHEET_AUD",
+        schema="THE",
+        ora_where_clause=(
+            "UPDATE_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="UPDATE_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="APPRAISED_STUMPAGE_RATE_AUD",
+        schema="THE",
+        ora_where_clause=(
+            "UPDATE_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="UPDATE_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="PROV_FOREST_USE_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "UPDATE_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="UPDATE_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="HARVESTING_AUTHORITY_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "UPDATE_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="UPDATE_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="HAULING_AUTHORITY_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "UPDATE_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="UPDATE_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="EXPORT_EXEMPTION_APPL_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="EXPORT_PERMIT_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="FOREST_INVC_TXN_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="INVOICE_DTL_TXN_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="NON_APPRAISED_WORKSHEET_AUD",
+        schema="THE",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="EXPORT_SCALE_DETAIL_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="EXPORT_PACKAGE_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="EXPORT_EXEMPTION_AUDIT",
+        schema="THE",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
+    ),
+    data_types.DataFilter(
+        table_name="ECAS_AUDIT_DETAIL",
+        schema="THE",
+        ora_where_clause=(
+            "ENTRY_TIMESTAMP > TO_DATE('2024-01-01', 'YYYY-MM-DD')"
+        ),
+        ddb_where_clause="ENTRY_TIMESTAMP > make_date(2024, 01, 01)",
     ),
 ]

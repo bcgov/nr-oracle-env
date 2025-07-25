@@ -299,9 +299,9 @@ class AppPaths:
         :return: path to the data classification file
         :rtype: pathlib.Path
         """
-        if constants.DATA_CLASSIFICATION_SS:
+        if constants.DATA_CLASSIFICATION_DOC:
             # If the environment variable is set, use it
-            local_path = pathlib.Path(constants.DATA_CLASSIFICATION_SS)
+            local_path = pathlib.Path(constants.DATA_CLASSIFICATION_DOC)
         else:
             local_path = self.get_temp_dir() / "data_classification.xlsx"
 

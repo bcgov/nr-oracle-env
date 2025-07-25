@@ -22,11 +22,11 @@
     // "python.envFile": "${workspaceFolder}/data-population/.env",
 
 
-    "python.defaultInterpreterPath": "./utils/.venv/bin/python",
+    "python.defaultInterpreterPath": "./data-population/.venv/bin/python",
     "python.testing.pytestArgs": [
-        "./utils"
+        "./data-population"
     ],
-    "python.envFile": "${workspaceFolder}/utils/.env",
+    "python.envFile": "${workspaceFolder}/data-population/.env",
 
 
     // "[python]": {
@@ -56,7 +56,7 @@
     "problems.ignore": [
         "**/junk*"
     ],
-    "terminal.integrated.scrollback": 10000,
+    "terminal.integrated.scrollback": 100000,
     "debug.console.maxHistoryItems": 10000,
     "github.copilot.advanced": {
         "debug.useNodeFetcher": true,
@@ -66,6 +66,9 @@
         "*.xlsx": "excel",
         "*.xls": "excel"
     },
+    "editor.minimap.enabled": false,
+    "editor.codeActions.triggerOnFocusChange": false,
+
 
 }
 

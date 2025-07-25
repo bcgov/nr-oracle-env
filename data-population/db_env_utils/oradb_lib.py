@@ -21,10 +21,13 @@ import json
 import logging
 import logging.config
 import pathlib
+import random
 import re
+from ast import pattern
 from typing import TYPE_CHECKING
 
 import constants
+import data_classification
 import data_types
 import db_lib
 import duckdb
@@ -83,7 +86,7 @@ class OracleDatabase(db_lib.DB):
         self.ora_cur_arraysize = 2500
         self.data_classification_struct = None
 
-        self.data_classification = DataClassification(
+        self.data_classification = data_classification.DataClassification(
             self.app_paths.get_data_classification_local_path(),
             schema=self.schema_2_sync,
         )
@@ -372,7 +375,10 @@ class OracleDatabase(db_lib.DB):
                 LOGGER.info("truncating failed load table: %s", table)
                 self.truncate_table(table=table.lower())
 
-        if failed_tables:
+        # disable this to debug issues with loading data
+
+        LOGGER.info("failed tables: %s", failed_tables)
+        if failed_tables and constants.FIX_INTEGRITY_ERRORS:
             # for failed tables the data will have already been truncated so
             # can run as refreshdb=False.
             if retries < self.max_retries:
@@ -389,7 +395,7 @@ class OracleDatabase(db_lib.DB):
                 LOGGER.error("Max retries reached for table %s", table)
                 self.enable_constraints(cons_list)
                 raise sqlalchemy.exc.IntegrityError
-        else:
+        elif constants.FIX_INTEGRITY_ERRORS:
             self.fix_sequences()
             self.enable_constraints(cons_list)
 
@@ -519,7 +525,6 @@ class OracleDatabase(db_lib.DB):
 
         const_struct = {}
         for row in cursor:
-            LOGGER.debug(row)
             # new constraint record
             if row[0] not in const_struct:
                 # cons_name/src_table_name
@@ -769,10 +774,22 @@ class OracleDatabase(db_lib.DB):
             query = f"DELETE FROM {constraint.table_name} where {where_clause}"  # noqa: S608
 
             records_removed.append(no_ri_data)
-            cursor.execute(query)
+            try:
+                cursor.execute(query)
+            except DatabaseError as e:
+                LOGGER.exception(
+                    "error encountered when deleting data from %s: %s",
+                    constraint.table_name,
+                    e,
+                )
+                LOGGER.error(
+                    "query that failed: %s",
+                    query,
+                )
+                raise e
             if rec_cnt % 200 == 0:
                 LOGGER.info(
-                    "deleted %s or %s records from %s/%s... committing changes!",
+                    "deleted %s of %s records from %s/%s... committing changes!",
                     rec_cnt,
                     len(no_ri_data_all),
                     constraint.table_name,
@@ -1504,6 +1521,7 @@ class FixOracleSequences:
                 sequence_name=row[2],
             )
             trig_seq_list.append(trig_seq)
+        LOGGER.debug("sequence list: %s", trig_seq_list)
         return trig_seq_list
 
     def get_trigger_body(
@@ -1590,7 +1608,9 @@ class FixOracleSequences:
                 trig_seq.trigger_name,
                 trig_seq.owner,
             )
-
+            # TODO: sequences are not always used in inserts, so this
+            # should be extended to handle other cases, like selects
+            # see: table - NON_APPRAISED_WORKSHEET trigger - NON_APPRAISED_WRKSHT_AUD_TRG
             inserts = self.extract_inserts(
                 trigger_struct.trigger_body,
                 trigger_struct.table_name,
@@ -1600,27 +1620,28 @@ class FixOracleSequences:
                     insert,
                     trigger_struct.table_name,
                 )
-                LOGGER.debug("sequence column %s", sequence_column)
-                insert_statement_table = self.extract_table_name(insert)
+                if sequence_column:
+                    LOGGER.debug("sequence column: %s", sequence_column)
+                    insert_statement_table = self.extract_table_name(insert)
 
-                current_max_value = self.get_max_value(
-                    table=insert_statement_table,
-                    column=sequence_column,
-                    schema=trig_seq.owner,
-                )
-                sequence_next_val = self.get_sequence_nextval(
-                    sequence_name=trig_seq.sequence_name,
-                    sequence_owner=trig_seq.owner,
-                )
-                LOGGER.debug("max value: %s", current_max_value)
-                LOGGER.debug("sequence nextval: %s", sequence_next_val)
-                if current_max_value > sequence_next_val:
-                    LOGGER.debug("fixing sequence: %s", trig_seq.sequence_name)
-                    self.set_sequence_nextval(
+                    current_max_value = self.get_max_value(
+                        table=insert_statement_table,
+                        column=sequence_column,
+                        schema=trig_seq.owner,
+                    )
+                    sequence_next_val = self.get_sequence_nextval(
                         sequence_name=trig_seq.sequence_name,
                         sequence_owner=trig_seq.owner,
-                        new_value=current_max_value + 1,
                     )
+                    LOGGER.debug("max value: %s", current_max_value)
+                    LOGGER.debug("sequence nextval: %s", sequence_next_val)
+                    if current_max_value > sequence_next_val:
+                        LOGGER.debug("fixing sequence: %s", trig_seq.sequence_name)
+                        self.set_sequence_nextval(
+                            sequence_name=trig_seq.sequence_name,
+                            sequence_owner=trig_seq.owner,
+                            new_value=current_max_value + 1,
+                        )
 
     def set_sequence_nextval(
         self,
@@ -1762,18 +1783,23 @@ class FixOracleSequences:
             # Split the columns and values by comma and strip whitespace
             columns = [col.strip() for col in columns_str.split(",")]
             values = [val.strip() for val in values_str.split(",")]
-            LOGGER.debug(columns)
-            LOGGER.debug(values)
+            LOGGER.debug("columns: %s", columns)
+            LOGGER.debug("values: %s", values)
             val_cnt = 0
             for val in values:
                 if val.upper().endswith(".NEXTVAL"):
                     LOGGER.debug(val)
                     break
                 val_cnt += 1
-            sequence_column = columns[val_cnt]
-            LOGGER.debug(sequence_column)
+            if val_cnt >= len(columns):
+                LOGGER.error(
+                    "could not find sequence column in insert statement: %s",
+                    insert_statement,
+                )
+            else:
+                sequence_column = columns[val_cnt]
+                LOGGER.debug("sequence column: %s", sequence_column)
         return sequence_column
-
 
 class DataFrameExtended(pd.DataFrame):
     """
@@ -1840,7 +1866,7 @@ class DataFrameExtended(pd.DataFrame):
             f"({', '.join(cols)}) VALUES "
             f"({', '.join(insert_placeholders)})"
         )
-        LOGGER.debug("insert statement: %s", cmd)
+        # LOGGER.debug("insert statement: %s", cmd)
 
         data = [
             tuple(self.convert_types(val) for val in row)
@@ -1909,12 +1935,93 @@ class DataFrameExtended(pd.DataFrame):
 
                         # cursor.executemany(cmd, bin_data)
                         oradb.connection.commit()
+                    elif error_obj.code == 1438:
+                        LOGGER.warning("error message: %s", error_obj.message)
+                        pattern = r"ORA-01438: value (\d+) greater than specified precision"
+                        match = re.search(pattern, error_obj.message)
+                        if match:
+                            LOGGER.debug("match found")
+                            value = match.group(1)
+                            LOGGER.debug("value extracted to search for: %s", value)
+                            # now iterate over the df to find the value, log
+                            # the row and column that has the value
+
+                            for idx, row in enumerate(data):
+                                for col_idx, val in enumerate(row):
+                                    if isinstance(val, (int, float, complex)):
+                                        val_str = str(val)
+                                        if val_str.endswith('.0'):
+                                            val = int(val)
+                                    if str(val) == str(value):
+                                        column_name = column_list[col_idx][0]
+                                        LOGGER.error("Trying to insert the value %s into the column: %s which is position: %s", value, column_name, col_idx + 1)
+                        else:
+                            LOGGER.debug("unable to parse the value from the message for more meaningful error log")
+                        raise
+                        # oracledb.exceptions.IntegrityError: ORA-01438: value 95430 greater than specified precision (4, 0) for column
+                    elif error_obj.code == 1:
+                        pattern = r"\(([^)]+)\)"
+
+                        matches = re.findall(pattern, error_obj.message)
+                        if matches:
+                            constraint_name = matches[0]  # THE.ASR_APP_WKSHT_ID_STMP_DT_UK
+                            column_names = matches[1]     # HISTORIC_APPRAISED_WRKSHEET_ID, APPRAISED_WORKSHEET_ID, STUMPAGE_RATE_EFFECTIVE_DATE
+
+                            LOGGER.error(f"Constraint name : %s", constraint_name)
+                            LOGGER.debug(f"Column names : %s",  column_names)
+                            column_list = [col.strip().upper() for col in column_names.split(',')]
+                            col_pos = []
+                            # get the index vals to look for
+                            for idx, col_name in enumerate(cols):
+                                col_name = col_name.replace('"', '')
+                                if col_name.upper() in column_list:
+                                    col_pos.append(idx)
+                            if not col_pos:
+                                LOGGER.debug("column_list: %s", column_list)
+                                LOGGER.debug("cols: %s", cols)
+                            unique = []
+                            # find dups
+                            for ridx, row in enumerate(data):
+                                elem = []
+                                for idx in col_pos:
+                                    elem.append(row[idx])
+                                if elem in unique:
+                                    LOGGER.debug(
+                                        "row %s is a duplicate, skipping %s",
+                                        elem, ridx,
+                                    )
+                                    raise
+                                unique.append(elem)
+
+
                     else:
                         # Re-raise the exception if it's not ORA-12899
+                        self.debug_sql(cmd, data)
                         raise
                 oradb.connection.commit()
 
             LOGGER.debug("data has been entered, and committed!")
+
+    def debug_sql(self, statement: str, bind_data: list[tuple]):
+        filled = statement
+        for row in bind_data:
+            filled = statement
+
+            for i, val in enumerate(row, start=1):
+                # Handle quoting for strings
+                if isinstance(val, str):
+                    replacement = f"'{val}'"
+                elif val is None:
+                    replacement = "NULL"
+                else:
+                    replacement = str(val)
+                filled = filled.replace(f":{i},", replacement + ",")
+                # only need a single row for the log
+            # break
+            filled = filled.replace(f":{i})", replacement + ")")
+            break
+        LOGGER.debug(filled)
+
 
     def convert_types(self, value: any) -> any:
         """
@@ -2237,7 +2344,13 @@ class Extractor:
                 select_column_list.append(
                     f'SDO_UTIL.TO_WKTGEOMETRY("{column_name}") AS "{column_name}"',
                 )
-            elif mask_obj:
+            elif mask_obj and not mask_obj.ignore:
+                LOGGER.debug("mask info: %s", mask_obj)
+                LOGGER.debug(
+                    "masking table %s column %s",
+                    self.table_name,
+                    column_name,
+                )
                 mask_dummy_val = self.data_cls.get_mask_dummy_val(column_type)
                 column_value = (
                     f'nvl2("{column_name}", {mask_dummy_val}, NULL) as '
@@ -2265,7 +2378,7 @@ class Importer:
         db_schema: str,
         oradb: OracleDatabase,
         import_file: pathlib.Path,
-        data_cls: DataClassification,
+        data_cls: data_classification.DataClassification,
     ) -> None:
         """
         Construct instance of the Importer class.
@@ -2322,6 +2435,7 @@ class Importer:
         :rtype: str | int
 
         """
+        # LOGGER.debug("column data: %s", column_data)
         column_type = column_data[1]
         fake_data = None
         if not faker_method:
@@ -2342,7 +2456,12 @@ class Importer:
                 msg = f"unable to call the faker method: {faker_method}"
                 raise ValueError(msg) from err  # Updated to include `from err`
         elif column_type in [
-            constants.ORACLE_TYPES.NUMBER,
+            constants.ORACLE_TYPES.NUMBER]:
+            max_num_chars = column_data[3] - column_data[4]
+            max_num = int('9' * max_num_chars)
+            min_num = 1
+            fake_data = random.randint(min_num, max_num)
+        elif column_type in [
             constants.ORACLE_TYPES.DATE,
         ]:
             fake_data = faker_method()
@@ -2406,7 +2525,7 @@ class Importer:
                             table_name=self.table_name,
                             column_name=column_name,
                         )
-                        if mask_obj:
+                        if mask_obj and not mask_obj.ignore:
                             LOGGER.debug("mask_obj: %s", mask_obj)
                             faker_method = mask_obj.faker_method
                             mask = ddb_chunk[  # noqa: PD004
@@ -2419,7 +2538,6 @@ class Importer:
                                 )
                                 for _ in range(mask.sum())
                             ]
-
                 ddb_chunk.__class__ = DataFrameExtended
                 ddb_chunk.to_sql(
                     self.table_name,
@@ -2736,135 +2854,133 @@ class DuckDbUtil:
         return value
 
 
-class DataClassification:
-    """
-    Data classification and data masking class.
+# class DataClassification:
+#     """
+#     Data classification and data masking class.
 
-    Retrieves and merges the data classification information in the data
-    classification spreadsheet, and the classifications that are already defined
-    in the constants.DATA_TO_MASK list.  Where data is defined in both locations
-    the constants.DATA_TO_MASK will take precidence.
-    """
+#     Retrieves and merges the data classification information in the data
+#     classification spreadsheet, and the classifications that are already defined
+#     in the constants.DATA_TO_MASK list.  Where data is defined in both locations
+#     the constants.DATA_TO_MASK will take precidence.
+#     """
 
-    def __init__(self, data_class_ss_path: pathlib.Path, schema: str) -> None:
-        """
-        Construct instance of the DataClassification class.
+#     def __init__(self, data_class_ss_path: pathlib.Path, schema: str) -> None:
+#         """
+#         Construct instance of the DataClassification class.
 
-        :param data_class_ss_path: path to the data classificiaton spreadsheet.
-        :type data_class_ss_path: pathlib.Path
-        :param schema: the schema that all the objects in the spreadsheet belong
-            to.
-        :type schema: str
-        """
-        self.valid_sheets = ["ECAS", "GAS2", "CLIENT", "ISP", "ILCR", "GAS"]
-        self.dc_struct: None | dict[str, dict[str, data_types.DataToMask]] = (
-            None
-        )
-        self.schema = schema
-        self.ss_path = data_class_ss_path
-        self.load()
+#         :param data_class_ss_path: path to the data classificiaton spreadsheet.
+#         :type data_class_ss_path: pathlib.Path
+#         :param schema: the schema that all the objects in the spreadsheet belong
+#             to.
+#         :type schema: str
+#         """
+#         self.valid_sheets = ["ECAS", "GAS2", "CLIENT", "ISP", "ILCR", "GAS"]
+#         self.dc_struct: None | dict[str, dict[str, data_types.DataToMask]] = (
+#             None
+#         )
+#         self.schema = schema
+#         self.ss_path = data_class_ss_path
+#         self.load()
 
-    def get_mask_info(self, table_name: str, column_name: str) -> str:
-        """
-        Get the data classification for a given table and column.
+#     def get_mask_info(self, table_name: str, column_name: str) -> str:
+#         """
+#         Get the data classification for a given table and column.
 
-        :param table_name: name of the table
-        :type table_name: str
-        :param column_name: name of the column
-        :type column_name: str
-        :return: the data classification for the table and column
-        :rtype: str
-        """
-        # double check that the struct has been populated
-        if self.dc_struct is None:
-            self.load()
-        # create short vars
-        tab = table_name.upper()
-        col = column_name.upper()
+#         :param table_name: name of the table
+#         :type table_name: str
+#         :param column_name: name of the column
+#         :type column_name: str
+#         :return: the data classification for the table and column
+#         :rtype: str
+#         """
+#         # double check that the struct has been populated
+#         if self.dc_struct is None:
+#             self.load()
+#         # create short vars
+#         tab = table_name.upper()
+#         col = column_name.upper()
 
-        # get_mask_info
-        if (tab in self.dc_struct) and col in self.dc_struct[tab]:
-            return self.dc_struct[tab][col]
-        return None
+#         # get_mask_info
+#         if (tab in self.dc_struct) and col in self.dc_struct[tab]:
+#             return self.dc_struct[tab][col]
+#         return None
 
-    # def get_ma
+#     def get_mask_dummy_val(self, data_type: constants.ORACLE_TYPES) -> str:
+#         """
+#         Return the dummy value for the data type.
 
-    def get_mask_dummy_val(self, data_type: constants.ORACLE_TYPES) -> str:
-        """
-        Return the dummy value for the data type.
+#         Recieves an oracle type like VARCHAR2, NUMBER, etc. and returns a dummy
+#         value that will go into the cells for this column that will be used
+#         to indicate that a particular column has been masked.
 
-        Recieves an oracle type like VARCHAR2, NUMBER, etc. and returns a dummy
-        value that will go into the cells for this column that will be used
-        to indicate that a particular column has been masked.
+#         :param data_type: the data type of the column to be masked
+#         :type data_type: constants.ORACLE_TYPES
+#         :return: the dummy value for the data type
+#         :rtype: str
+#         """
+#         if data_type not in constants.OracleMaskValuesMap:
+#             msg = (f"data type {data_type} not in OracleMaskValuesMap",)
+#             raise ValueError(msg)
 
-        :param data_type: the data type of the column to be masked
-        :type data_type: constants.ORACLE_TYPES
-        :return: the dummy value for the data type
-        :rtype: str
-        """
-        if data_type not in constants.OracleMaskValuesMap:
-            msg = (f"data type {data_type} not in OracleMaskValuesMap",)
-            raise ValueError(msg)
+#         return constants.OracleMaskValuesMap[data_type]
 
-        return constants.OracleMaskValuesMap[data_type]
+#     def has_masking(self, table_name: str) -> bool:
+#         """
+#         Check if the table has any masking.
 
-    def has_masking(self, table_name: str) -> bool:
-        """
-        Check if the table has any masking.
+#         :param table_name: name of the table
+#         :type table_name: str
+#         :return: True if the table has any masking, False otherwise
+#         :rtype: bool
+#         """
+#         return table_name.upper() in self.dc_struct
 
-        :param table_name: name of the table
-        :type table_name: str
-        :return: True if the table has any masking, False otherwise
-        :rtype: bool
-        """
-        return table_name.upper() in self.dc_struct
+#     def load(self) -> None:
+#         """
+#         Merge classifications in constants with classes defined in the ss.
+#         """
+#         self.dc_struct = {}
 
-    def load(self) -> None:
-        """
-        Merge classifications in constants with classes defined in the ss.
-        """
-        self.dc_struct = {}
+#         for sheet_name in self.valid_sheets:
+#             dfs = pd.read_excel(self.ss_path, sheet_name=sheet_name)
+#             #'TABLE_NAME' / 'COLUMN NAME' / 'INFO SECURITY CLASS'
+#             subset_df = dfs.loc[
+#                 dfs["INFO SECURITY CLASS"].str.lower() != "public",
+#                 ["TABLE NAME", "COLUMN NAME", "INFO SECURITY CLASS"],
+#             ]
+#             for _index, row in subset_df.iterrows():
+#                 tab = row["TABLE NAME"].upper()
+#                 col = row["COLUMN NAME"].upper()
 
-        for sheet_name in self.valid_sheets:
-            dfs = pd.read_excel(self.ss_path, sheet_name=sheet_name)
-            #'TABLE_NAME' / 'COLUMN NAME' / 'INFO SECURITY CLASS'
-            subset_df = dfs.loc[
-                dfs["INFO SECURITY CLASS"].str.lower() != "public",
-                ["TABLE NAME", "COLUMN NAME", "INFO SECURITY CLASS"],
-            ]
-            for _index, row in subset_df.iterrows():
-                tab = row["TABLE NAME"].upper()
-                col = row["COLUMN NAME"].upper()
+#                 class_rec = data_types.DataToMask(
+#                     table_name=tab,
+#                     schema=self.schema,
+#                     column_name=col,
+#                     faker_method=None,
+#                     percent_null=0,
+#                 )
+#                 if tab not in self.dc_struct:
+#                     self.dc_struct[tab] = {}
+#                 if col not in self.dc_struct[tab]:
+#                     self.dc_struct[tab][col] = class_rec
 
-                class_rec = data_types.DataToMask(
-                    table_name=tab,
-                    schema=self.schema,
-                    column_name=col,
-                    faker_method=None,
-                    percent_null=0,
-                )
-                if tab not in self.dc_struct:
-                    self.dc_struct[tab] = {}
-                if col not in self.dc_struct[tab]:
-                    self.dc_struct[tab][col] = class_rec
-
-        # load the data classification defined in the constants,
-        # remove any classifications that have been identified as ignore
-        for class_rec in constants.DATA_TO_MASK:
-            tab = class_rec.table_name
-            col = class_rec.column_name
-            if tab not in self.dc_struct:
-                self.dc_struct[tab] = {}
-            if (
-                col in self.dc_struct[tab]
-                and hasattr(self.dc_struct[tab][col], "ignore")
-                and class_rec.ignore
-            ):
-                # remove the column from the data classification
-                LOGGER.warning("override for %s %s", tab, col)
-                del self.dc_struct[tab][col]
-            else:
-                self.dc_struct[tab][col] = class_rec
+#         # load the data classification defined in the constants,
+#         # remove any classifications that have been identified as ignore
+#         for class_rec in constants.DATA_TO_MASK:
+#             tab = class_rec.table_name
+#             col = class_rec.column_name
+#             if tab not in self.dc_struct:
+#                 self.dc_struct[tab] = {}
+#             if (
+#                 col in self.dc_struct[tab]
+#                 and hasattr(self.dc_struct[tab][col], "ignore")
+#                 and class_rec.ignore
+#             ):
+#                 # remove the column from the data classification
+#                 LOGGER.warning("override for %s %s", tab, col)
+#                 del self.dc_struct[tab][col]
+#             else:
+#                 self.dc_struct[tab][col] = class_rec
 
 
 class EnableConstraintsMaxRetriesError(Exception):
