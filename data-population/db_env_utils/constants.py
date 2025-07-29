@@ -46,6 +46,7 @@ OBJECT_STORE_DATA_DIRECTORY = os.getenv("OBJECT_STORE_DATA_DIRECTORY", "pyetl")
 # the env var that can contain the path to the data classification file,
 # which is used to determin table/column data classification.
 DATA_CLASSIFICATION_DOC = os.getenv("DATA_CLASSIFICATION_JSON", None)
+LOGGER.debug("data classification doc: %s", DATA_CLASSIFICATION_DOC)
 
 # database filter string
 DB_FILTER_STRING = os.getenv("DB_FILTER_STRING", "nr-spar-{env_str}-database")
