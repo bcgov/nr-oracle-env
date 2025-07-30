@@ -13,6 +13,7 @@ import boto3
 import botocore.exceptions
 import constants
 from boto3.s3.transfer import TransferConfig
+from botocore.client import Config
 
 if TYPE_CHECKING:
     import pathlib
@@ -46,7 +47,20 @@ class OStore:
             aws_access_key_id=self.conn_params.user_id,
             aws_secret_access_key=self.conn_params.secret,
             endpoint_url=f"https://{self.conn_params.host}",
+            verify=False,  # Disable SSL verification for self-signed cert
+            config=Config(signature_version="s3v4"),
         )
+
+        # self.ostore_client = boto3.client(
+        #     "s3",
+        #     aws_access_key_id=acc_key,
+        #     aws_secret_access_key=acc_secret,
+        #     endpoint_url=acc_host,  # Custom endpoint for S3-compatible service
+        #     verify=False,
+        #     config=Config(signature_version="s3"),
+        # )
+
+
         self.app_paths = app_paths
 
     def get_data_files(
@@ -100,6 +114,10 @@ class OStore:
 
             # keeping it simple for now, if local exists re-use it
             if not local_data_file.exists():
+                LOGGER.debug(
+                    "local file: %s does not exist, pulling from object store: %s",
+                    local_data_file, remote_data_file,
+                )
                 # pull the files from object store.
                 # with Path("f1.py").open("wb") as fp:
                 with local_data_file.open("wb") as f:

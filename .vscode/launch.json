@@ -195,7 +195,7 @@
             ]
         },
         {
-            "name": "data_extract_ORA_PROD",
+            "name": "data_extract_ORA_PROD_table",
             "type": "debugpy",
             "redirectOutput": false ,
             "request": "launch",
@@ -206,8 +206,27 @@
             "args": [
                 "ORA",
                 "PROD",
+                "--table",
+                "EXPORT_PURCHASE_OFFER"
             ]
         },
+                {
+            "name": "data_ingest_ORA_PROD_table_NON_AP_WRKSHT",
+            "type": "debugpy",
+            "redirectOutput": false ,
+            "request": "launch",
+            "program": "data-population/db_env_utils/main_ingest.py",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/data-population/.env",
+            "python": "${workspaceFolder}/data-population/.venv/bin/python",
+            "args": [
+                "ORA",
+                "PROD",
+                "--table",
+                "EXPORT_PURCHASE_OFFER",
+            ]
+        },
+
         {
             "name": "batch_run",
             "type": "debugpy",

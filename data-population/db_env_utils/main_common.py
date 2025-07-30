@@ -389,6 +389,7 @@ class Utility:
         # example of some of the tables that triggered the ostore upload issue
         # SEEDLOT / CLIENT_LOCATION / PARENT_TREE / SMP_MIX
         for table in tables_to_export:
+            ostore_exists = False
             LOGGER.info("Exporting table %s", table)
             # skip the forest cover geometry table, for now
             # commonly skipped tables:
@@ -436,6 +437,7 @@ class Utility:
                     "Export file %s exists in object store, skipping export",
                     ostore_export_file,
                 )
+                ostore_exists = True
                 continue
             # the remote file either does not exist, or the refresh flag is set
             # to true, re-export the file and replace the local and remote data
@@ -451,7 +453,7 @@ class Utility:
                     overwrite=refresh,
                 )
 
-            if file_created:
+            if file_created or (not ostore_exists and local_export_file.exists()):
                 # push the file to object store, if a new file has been
                 # created
                 ostore.put_data_files(
@@ -459,8 +461,9 @@ class Utility:
                     self.env_obj.current_env,
                     self.db_type,
                 )
-                LOGGER.debug("pausing for 5 seconds")
-                time.sleep(5)
+                LOGGER.debug("pausing for %s seconds", constants.DATA_PULL_PAUSE)
+                time.sleep(constants.DATA_PULL_PAUSE)
+
         if self.db_type == constants.DBType.OC_POSTGRES:
             self.kube_client.close_port_forward()
 

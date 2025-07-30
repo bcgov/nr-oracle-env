@@ -99,12 +99,14 @@ services:
     command: info migrate info
     volumes:
       # - "./data-query-tool/data/migrations:/flyway/sql:ro"
-       - "./project_specific/consep/migrations:/flyway/sql:ro"
+      #  - "./project_specific/consep/migrations:/flyway/sql:ro"
+      - "./project_specific/lexis/migrations:/flyway/sql:ro"
+
     environment:
       <<: *oracle-vars-test
-      FLYWAY_USER: CONSEP
+      FLYWAY_USER: *ORA_USER
       FLYWAY_PASSWORD: *ORA_PASSWORD
-      FLYWAY_DEFAULT_SCHEMA: CONSEP
+      FLYWAY_DEFAULT_SCHEMA: *ORA_USER
       FLYWAY_BASELINE_ON_MIGRATE: true
     depends_on:
       oracle-test:
