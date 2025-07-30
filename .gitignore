@@ -182,7 +182,6 @@ data-population/data/**
 junk.py
 data-population/db_env_utils/junk.py
 data-population/junk_simple_load.py
-project_specific/**
 data-population/utf8_issues.py
 junk.duckdb
 data-population/tests/test_data/age_class_code.ddb
@@ -191,3 +190,16 @@ data-population/db_env_utils/test_script.py
 data-population/tests/test_data/application.ddb
 data-population/tests/test_data/application.csv
 docker_data_pump_file/dbp01-31-10-24.dmp
+utils/regexdebug.py
+utils/tofix.csv
+
+project_specific/consep/**
+project_specific/misc/**
+project_specific/msd/**
+project_specific/silva/**
+
+project_specific/lexis/data/**
+project_specific/lexis/data_classifications/*.xlsx
+project_specific/lexis/data_classifications/*.XLSX
+project_specific/lexis/data_classifications/*.xls
+project_specific/lexis/data_classifications/consolidated_data_classification.json
