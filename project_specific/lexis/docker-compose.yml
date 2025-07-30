@@ -1,0 +1,111 @@
+x-var:
+  - &ORA_USER
+    THE
+  - &ORA_PASSWORD
+    default
+  - &ORA_FLYWAY_URL_LEXIS
+    jdbc:oracle:thin:@//oracle-lexis:1528/DBDOCK_LEXIS
+  - &ORA_HOST_LEXIS
+    oracle-lexis
+  - &ORA_PORT_LEXIS
+    1528
+  - &ORA_DATABASE_LEXIS
+    DBDOCK_LEXIS
+
+x-oracle-vars-lexis: &oracle-vars-lexis
+  ORACLE_DATABASE: *ORA_DATABASE_LEXIS
+  ORACLE_PASSWORD: *ORA_PASSWORD
+  ORACLE_HOST: *ORA_HOST_LEXIS
+  APP_USER: *ORA_USER
+  APP_USER_PASSWORD: *ORA_PASSWORD
+  FLYWAY_URL: *ORA_FLYWAY_URL_LEXIS
+
+services:
+
+  oracle-lexis:
+    # Docker Hub image (feel free to change the tag "latest" to any other available one)
+    image: gvenzl/oracle-free:latest
+    # Forward Oracle port to localhost
+    container_name: oracle-lexis
+    ports:
+      - "1528:1521"
+    # Provide passwords and other environment variables to the container
+    environment:
+      <<: *oracle-vars-lexis
+    # Customize healthcheck script options for startup
+    healthcheck:
+      test: ["CMD", "/opt/oracle/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Mount a local SQL file to initialize your schema at startup
+    volumes:
+      - ./oracle/dbdock_lexis/init_scripts:/container-entrypoint-initdb.d # mount the init scripts
+      - ./oracle/dbdock_lexis/start_scripts:/container-entrypoint-startdb.d # mount the init scripts
+      - oracle-lexis:/opt/oracle/oradata  # Mount the volume to the Oracle data directory
+
+  oracle-migrations-lexis:
+    image: flyway/flyway:10-alpine
+    container_name: oracle-migrations-lexis
+    command: info migrate info
+    volumes:
+      - "./migrations:/flyway/sql:ro"
+
+    environment:
+      <<: *oracle-vars-lexis
+      FLYWAY_USER: *ORA_USER
+      FLYWAY_PASSWORD: *ORA_PASSWORD
+      FLYWAY_DEFAULT_SCHEMA: *ORA_USER
+      FLYWAY_BASELINE_ON_MIGRATE: "true"
+      FLYWAY_URL: jdbc:oracle:thin:@//oracle-lexis:1521/DBDOCK_LEXIS
+    depends_on:
+      oracle-lexis:
+        condition: service_healthy
+
+  oracle-data-load:
+    image: data-load:latest
+    user: "0:0"
+    build:
+        context: ./  # Path to the directory containing the Dockerfile
+        dockerfile: Dockerfile.dbutils  # Name of the Dockerfile (optional if named "Dockerfile")
+    # image: python:3.13-slim-bookworm
+    container_name: data-load
+    # "CMD",
+    # entrypoint: [ "/application/docker_run_ORA_TEST.sh"]
+    working_dir: /app
+    # entrypoint: ["python", "db_env_utils/main_ingest.py", ORA, PROD]
+    entrypoint: ["bash", "/app/run_data_inject_ora.sh"]
+    # entrypoint: ["env"]
+    volumes:
+      - lexus-data:/app/data
+      - ./ora-env/data/temp/data_classification.xlsx:/app/data_classification.xlsx
+      - ./data_classifications/fixed_data_classification.json:/app/fixed_data_classification.json
+    # don't think I need the *oracle-vars
+    env_file:
+      - ".env"
+    environment:
+      <<: *oracle-vars-lexis
+      ORACLE_HOST_LOCAL: oracle-lexis
+      ORACLE_PORT_LOCAL: 1521
+      ORACLE_SERVICE_LOCAL: *ORA_DATABASE_LEXIS
+      ORACLE_SYNC_USER_LOCAL: *ORA_USER
+      ORACLE_SYNC_PASSWORD_LOCAL: *ORA_PASSWORD
+      ORACLE_SCHEMA_TO_SYNC_LOCAL: *ORA_USER
+      DATA_CLASSIFICATION_JSON: /app/fixed_data_classification.json
+      LOCAL_DATA_DIR: /app/data
+
+      # ORACLE_HOST_LOCAL: *ORA_HOST_LEXIS
+      # DATA_CLASSIFICATION_JSON: /app/fixed_data_classification.json
+      # ORACLE_PORT_LOCAL: *ORA_PORT_LEXIS
+      # ORACLE_SERVICE_LOCAL:
+      # - DATA_CLASSIFICATION_JSON=/app/fixed_data_classification.json
+      # - LOCAL_DATA_DIR=/app/data
+
+    depends_on:
+      oracle-migrations-lexis:
+        condition: service_completed_successfully
+
+
+volumes:
+  oracle-lexis:
+  lexus-data:
