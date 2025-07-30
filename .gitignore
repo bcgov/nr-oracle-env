@@ -202,4 +202,5 @@ project_specific/lexis/data/**
 project_specific/lexis/data_classifications/*.xlsx
 project_specific/lexis/data_classifications/*.XLSX
 project_specific/lexis/data_classifications/*.xls
+project_specific/lexis/data_classifications/*.XLS
 project_specific/lexis/data_classifications/consolidated_data_classification.json
