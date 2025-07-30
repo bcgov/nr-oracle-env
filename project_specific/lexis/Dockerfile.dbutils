@@ -8,15 +8,7 @@ RUN apt-get update && \
     apt-get --no-install-recommends install -y \
         build-essential && \
     apt-get --no-install-recommends install -y git && \
-    git clone --branch feat/nrmofdb-populate-lexis --single-branch https://github.com/bcgov/nr-oracle-env .
-    #git clone https://github.com/bcgov/nr-oracle-env .
-
-    #TODO: eventually once working just use the main branch as is
-    #      demonstrated below.  Using the feature branch to get things
-    #      working first.
-    #      git clone --branch <branch-name> --single-branch
-    #
-
+    git clone https://github.com/bcgov/nr-oracle-env .
 
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
