@@ -186,9 +186,12 @@ data-population/utf8_issues.py
 junk.duckdb
 data-population/tests/test_data/age_class_code.ddb
 data-population/tests/test_data/forest_cover_geometry.ddb
-data-population/db_env_utils/test_script.py
+data-population/tests/test_data/classification_ss.xlsx
 data-population/tests/test_data/application.ddb
 data-population/tests/test_data/application.csv
+data-population/tests/test_data/fixed_data_classification.json
+project_specific/lexis/data_classifications/fixed_data_classification.json
+
 docker_data_pump_file/dbp01-31-10-24.dmp
 utils/regexdebug.py
 utils/tofix.csv
@@ -204,3 +207,4 @@ project_specific/lexis/data_classifications/*.XLSX
 project_specific/lexis/data_classifications/*.xls
 project_specific/lexis/data_classifications/*.XLS
 project_specific/lexis/data_classifications/consolidated_data_classification.json
+data-population/db_env_utils/test_script.py
