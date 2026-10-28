@@ -36,8 +36,8 @@ x-oracle-vars-test: &oracle-vars-test
 services:
   # Name of the Docker Compose service
   oracle:
-    # Ministry shared Oracle Free container (pre-extracted faststart to avoid Docker Hub rate limits)
-    image: ghcr.io/bcgov/nr-containers/oracle-free:23.26.3-slim-faststart
+    # Ministry shared Oracle Free container (pre-extracted faststart with spatial support to avoid Docker Hub rate limits)
+    image: ghcr.io/bcgov/nr-containers/oracle-free:23.26.3-faststart
     # Forward Oracle port to localhost
     container_name: oracle
     ports:
@@ -58,7 +58,7 @@ services:
       - ./docker_data_pump_file/dbp01-31-10-24.dmp:/dpdata/dump_file.dmp # mount the actual dump file
 
   oracle-dp-import:
-    image: ghcr.io/bcgov/nr-containers/oracle-free:23.26.3-slim-faststart
+    image: ghcr.io/bcgov/nr-containers/oracle-free:23.26.3-faststart
     container_name: oracle-dp-import
     # Provide passwords and other environment variables to the container
     environment:
@@ -72,8 +72,8 @@ services:
         condition: service_healthy
 
   oracle-test:
-    # Ministry shared Oracle Free container (pre-extracted faststart to avoid Docker Hub rate limits)
-    image: ghcr.io/bcgov/nr-containers/oracle-free:23.26.3-slim-faststart
+    # Ministry shared Oracle Free container (pre-extracted faststart with spatial support to avoid Docker Hub rate limits)
+    image: ghcr.io/bcgov/nr-containers/oracle-free:23.26.3-faststart
     # Forward Oracle port to localhost
     container_name: oracle-test
     ports:
