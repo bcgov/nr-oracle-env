@@ -33,6 +33,9 @@ Subsequent Sections will dive into each of these components in more detail.
 
 # A) Structural Oracle Database
 
+> [!NOTE]
+> Local Oracle containers use the ministry's pre-extracted, OpenShift-compatible base image with spatial support: [`ghcr.io/bcgov/nr-containers/oracle-free:23.26.3-faststart`](https://github.com/bcgov/nr-containers/tree/main/oracle-free). This avoids Docker Hub rate limits and ensures fast container startup.
+
 In summary this database will not contain any data.  Instead its a structural
 database that contains all the database objects that exist in the prod THE
 database.

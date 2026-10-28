@@ -23,8 +23,8 @@ x-oracle-vars-lexis: &oracle-vars-lexis
 services:
 
   oracle-lexis:
-    # Docker Hub image (feel free to change the tag "latest" to any other available one)
-    image: gvenzl/oracle-free:latest
+    # Ministry shared Oracle Free container (pre-extracted faststart with spatial support to avoid Docker Hub rate limits)
+    image: ghcr.io/bcgov/nr-containers/oracle-free:23.26.3-faststart
     # Forward Oracle port to localhost
     container_name: oracle-lexis
     ports:
